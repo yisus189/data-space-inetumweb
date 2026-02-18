@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/* === MODELOS DE IDENTIDAD (USUARIOS) === */
+
+model User {
+  id        Int        @id @default(autoincrement())
+  name      String
+  email     String     @unique
+  password  String     // hash
+  role      Role       @default(CONSUMER)
+  status    UserStatus @default(ACTIVE)
+  orgUnit   String?
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relación con datasets (provider)
+  datasets  Dataset[]  @relation("UserDatasets")
+
+  // Contratos como provider y como consumer
+  providerContracts Contract[] @relation("ProviderContracts")
+  consumerContracts Contract[] @relation("ConsumerContracts")
+
+  // Logs de acceso
+  accessLogs AccessLog[]
+}
+
+enum Role {
+  PROVIDER
+  CONSUMER
+  OPERATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+/* === MODELOS DE CATÁLOGO (DATASETS) === */
+
+model Dataset {
+  id                 Int                 @id @default(autoincrement())
+  name               String
+  description        String?
+  category           String?
+  tags               String?             // texto con tags separadas por coma
+  origin             DatasetOrigin       @default(INTERNAL)
+  storageType        DatasetStorageType  @default(FILE)
+  storageUri         String?             // ruta/URL al recurso de datos
+  published          Boolean             @default(false)
+  legalBasis         String?             // base legal (GDPR)
+  dataClassification DataClassification  @default(INTERNAL)
+  usageTerms         String?             // términos de uso legales
+
+  providerId Int
+  provider   User               @relation("UserDatasets", fields: [providerId], references: [id])
+
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  odrlPolicy  Json?
+
+  status      DatasetStatus @default(ACTIVE)
+  blocked     Boolean       @default(false)
+
+  // Relación opcional con catálogo externo (OpenMetadata u otros)
+  externalDatasetId Int?
+  externalDataset   ExternalDataset?   @relation(fields: [externalDatasetId], references: [id])
+
+  // Relaciones con contratos, solicitudes y logs
+  accessRequests AccessRequest[]
+  contracts      Contract[]
+  accessLogs     AccessLog[]
+}
+
+enum DatasetStatus {
+  ACTIVE
+  BLOCKED
+  DRAFT // opcional
+}
+
+model ExternalDataset {
+  id             Int      @id @default(autoincrement())
+  externalSystem String   // p.ej. "OPENMETADATA"
+  externalId     String   // ID en el sistema externo
+  name           String
+  description    String?
+  metadataJson   String?  // JSON en string
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  datasets       Dataset[]
+}
+
+enum DatasetOrigin {
+  INTERNAL
+  EXTERNAL_OPENMETADATA
+}
+
+enum DatasetStorageType {
+  FILE
+  EXTERNAL_API
+  DB_VIEW
+}
+
+enum DataClassification {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+}
+
+/* === MODELOS DE NEGOCIACIÓN Y CONTRATOS === */
+
+model NegotiationType {
+  id                      Int       @id @default(autoincrement())
+  name                    String
+  description             String?
+  defaultContractTemplate String   // texto base del contrato
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accessRequests AccessRequest[]
+}
+
+model AccessRequest {
+  id               Int        @id @default(autoincrement())
+
+  datasetId        Int
+  dataset          Dataset    @relation(fields: [datasetId], references: [id])
+
+  consumerId       Int
+  consumer         User       @relation(fields: [consumerId], references: [id])
+
+  negotiationTypeId Int?
+  negotiationType  NegotiationType? @relation(fields: [negotiationTypeId], references: [id])
+
+  status           AccessRequestStatus @default(PENDING)
+  requestedPurpose String?
+  requestedDuration String?
+  requestedScope   String?
+  consumerComment  String?
+  providerComment  String?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+
+  contract         Contract?
+}
+
+model Contract {
+  id             Int       @id @default(autoincrement())
+
+  accessRequestId Int      @unique
+  accessRequest   AccessRequest @relation(fields: [accessRequestId], references: [id])
+
+  datasetId      Int
+  dataset        Dataset   @relation(fields: [datasetId], references: [id])
+
+  providerId     Int
+  provider       User      @relation("ProviderContracts", fields: [providerId], references: [id])
+
+  consumerId     Int
+  consumer       User      @relation("ConsumerContracts", fields: [consumerId], references: [id])
+
+  contractText          String   // snapshot del contrato aceptado
+  technicalConstraintsJson String? // JSON con límites técnicos si hiciera falta
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  status        ContractStatus @default(ACTIVE)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relación con logs de acceso
+  accessLogs AccessLog[]
+}
+
+enum AccessRequestStatus {
+  PENDING
+  COUNTER_FROM_PROVIDER
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+/* === MODELO DE AUDITORÍA === */
+
+model AccessLog {
+  id         Int      @id @default(autoincrement())
+
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id])
+
+  datasetId  Int
+  dataset    Dataset  @relation(fields: [datasetId], references: [id])
+
+  contractId Int?
+  contract   Contract? @relation(fields: [contractId], references: [id])
+
+  action     AccessAction
+  purpose    String?
+  ipAddress  String?
+  userAgent  String?
+  extra      String?   // JSON en string
+
+  timestamp  DateTime  @default(now())
+}
+
+enum AccessAction {
+  VIEW_METADATA
+  DOWNLOAD
+  API_ACCESS
+}
