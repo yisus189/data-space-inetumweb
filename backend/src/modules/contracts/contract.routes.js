@@ -1,8 +1,11 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../../config/db');
 const { requireAuth } = require('../../middleware/auth');
+const {
+  setContractOdrlPolicyController,
+  getContractOdrlPolicyController
+} = require('./contract.controller');
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 // Todas las rutas de contratos requieren autenticación
@@ -24,8 +27,6 @@ router.get('/', async (req, res) => {
       where = { consumerId: userId };
     } else if (role === 'PROVIDER') {
       where = { providerId: userId };
-    } else if (role === 'OPERATOR') {
-      where = {}; // todos
     }
 
     const contracts = await prisma.contract.findMany({
@@ -33,15 +34,15 @@ router.get('/', async (req, res) => {
       orderBy: { updatedAt: 'desc' },
       include: {
         dataset: {
-          select: { id: true, name: true },
+          select: { id: true, name: true }
         },
         provider: {
-          select: { id: true, email: true, name: true },
+          select: { id: true, email: true, name: true }
         },
         consumer: {
-          select: { id: true, email: true, name: true },
-        },
-      },
+          select: { id: true, email: true, name: true }
+        }
+      }
     });
 
     const result = contracts.map((c) => ({
@@ -50,8 +51,10 @@ router.get('/', async (req, res) => {
       provider: c.provider,
       consumer: c.consumer,
       status: c.status,
+      effectiveFrom: c.effectiveFrom,
+      effectiveTo: c.effectiveTo,
       createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
+      updatedAt: c.updatedAt
     }));
 
     res.json(result);
@@ -63,8 +66,6 @@ router.get('/', async (req, res) => {
 
 /**
  * GET /contracts/:id
- * Si ya tienes este endpoint, mantenlo; si no, aquí tienes una versión básica
- * que incluye la política ODRL del dataset (si existe).
  */
 router.get('/:id', async (req, res) => {
   try {
@@ -73,20 +74,40 @@ router.get('/:id', async (req, res) => {
       where: { id },
       include: {
         dataset: {
-          include: { odrlPolicy: true }, // si no tienes odrlPolicy, quita esta línea
-          select: { id: true, name: true, odrlPolicy: true },
+          select: { id: true, name: true }
         },
         provider: {
-          select: { id: true, email: true, name: true },
+          select: { id: true, email: true, name: true }
         },
         consumer: {
-          select: { id: true, email: true, name: true },
+          select: { id: true, email: true, name: true }
         },
-      },
+        accessRequest: {
+          select: {
+            id: true,
+            requestedPurpose: true,
+            requestedDuration: true,
+            requestedScope: true,
+            agreedPurpose: true,
+            agreedDuration: true,
+            agreedScope: true,
+            status: true
+          }
+        }
+      }
     });
 
     if (!contract) {
       return res.status(404).json({ error: 'Contrato no encontrado' });
+    }
+
+    // Permisos básicos por rol
+    if (
+      req.user.role !== 'OPERATOR' &&
+      contract.provider.id !== req.user.id &&
+      contract.consumer.id !== req.user.id
+    ) {
+      return res.status(403).json({ error: 'No tienes permisos para ver este contrato' });
     }
 
     res.json(contract);
@@ -95,5 +116,8 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener el contrato' });
   }
 });
+
+router.put('/:id/odrl-policy', setContractOdrlPolicyController);
+router.get('/:id/odrl-policy', getContractOdrlPolicyController);
 
 module.exports = router;

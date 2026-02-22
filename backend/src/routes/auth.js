@@ -1,11 +1,29 @@
 // backend/src/routes/auth.js
 const express = require('express');
 const bcrypt = require('bcrypt');
-const { PrismaClient, UserStatus } = require('@prisma/client');
-const { generateToken } = require('../auth');
+const { UserStatus } = require('@prisma/client');
+const prisma = require('../config/db');
+const { generateToken } = require('../middleware/auth');
 
-const prisma = new PrismaClient();
 const router = express.Router();
+
+function validateEmail(email) {
+  if (typeof email !== 'string') return false;
+  const trimmed = email.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+}
+
+function validatePasswordStrength(password) {
+  if (typeof password !== 'string') return false;
+  // mínimo corporativo básico
+  return (
+    password.length >= 12 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password)
+  );
+}
 
 /**
  * POST /auth/register
@@ -14,45 +32,63 @@ const router = express.Router();
 router.post('/register', async (req, res) => {
   try {
     const {
-      name,     // nombre completo
+      name,
       country,
       city,
       phone,
       email,
       password,
-      role,     // 'PROVIDER' o 'CONSUMER'
+      role
     } = req.body;
 
     if (!['PROVIDER', 'CONSUMER'].includes(role)) {
       return res.status(400).json({ error: 'Rol no permitido' });
     }
 
+    if (typeof name !== 'string' || name.trim().length < 3) {
+      return res.status(400).json({ error: 'Nombre inválido' });
+    }
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: 'Email inválido' });
+    }
+
+    if (!validatePasswordStrength(password)) {
+      return res.status(400).json({
+        error:
+          'La contraseña debe tener mínimo 12 caracteres, mayúsculas, minúsculas, número y símbolo'
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
     const exists = await prisma.user.findUnique({
-      where: { email },          // email: string
+      where: { email: normalizedEmail }
     });
+
     if (exists) {
       return res.status(400).json({ error: 'El correo ya está registrado' });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
       data: {
-        name,
-        country,
-        city,
-        phone,
-        email,
+        name: name.trim(),
+        country: country || null,
+        city: city || null,
+        phone: phone || null,
+        email: normalizedEmail,
         password: hashed,
         role,
-        status: UserStatus.PENDING,
-      },
+        status: UserStatus.PENDING
+      }
     });
 
     res.json({
       message:
         'Registro creado correctamente. Tu cuenta será revisada por un operador antes de poder acceder.',
-      userId: user.id,
+      userId: user.id
     });
   } catch (err) {
     console.error('Error en /auth/register', err);
@@ -66,19 +102,17 @@ router.post('/register', async (req, res) => {
  */
 router.post('/login', async (req, res) => {
   try {
-    // Log de depuración para ver qué llega
-    console.log('Body /auth/login:', req.body);
-
     const emailFromBody = req.body.email;
     const passwordFromBody = req.body.password;
 
-    if (!emailFromBody || !passwordFromBody) {
-      return res.status(400).json({ error: 'Email y contraseña son obligatorios' });
+    if (!validateEmail(emailFromBody) || typeof passwordFromBody !== 'string') {
+      return res.status(400).json({ error: 'Email y contraseña son obligatorios y válidos' });
     }
 
-    // Aquí NOS ASEGURAMOS de que sea un string simple
+    const normalizedEmail = emailFromBody.trim().toLowerCase();
+
     const user = await prisma.user.findUnique({
-      where: { email: emailFromBody },
+      where: { email: normalizedEmail }
     });
 
     if (!user) {
@@ -95,7 +129,7 @@ router.post('/login', async (req, res) => {
         error:
           user.status === UserStatus.PENDING
             ? 'Tu cuenta aún no ha sido aprobada por un operador.'
-            : 'Tu cuenta no está activa. Contacta con soporte.',
+            : 'Tu cuenta no está activa. Contacta con soporte.'
       });
     }
 
@@ -111,8 +145,8 @@ router.post('/login', async (req, res) => {
         country: user.country,
         city: user.city,
         phone: user.phone,
-        status: user.status,
-      },
+        status: user.status
+      }
     });
   } catch (err) {
     console.error('Error en /auth/login', err);

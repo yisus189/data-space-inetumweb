@@ -1,7 +1,6 @@
 // backend/src/modules/contracts/contract.controller.js
 const service = require('./contract.service');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../../config/db');
 
 async function listMyContractsAsConsumerController(req, res, next) {
   try {

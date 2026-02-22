@@ -22,6 +22,12 @@ async function createAccessRequest(consumerId, data) {
     throw err;
   }
 
+  if (dataset.status !== 'ACTIVE' || dataset.blocked) {
+    const err = new Error('Dataset bloqueado o no activo');
+    err.status = 400;
+    throw err;
+  }
+
   // Evitar solicitudes duplicadas pendentes para mismo dataset/consumer si quieres:
   const existingPending = await prisma.accessRequest.findFirst({
     where: {
