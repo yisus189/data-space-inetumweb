@@ -258,6 +258,7 @@ enum AccessAction {
   VIEW_METADATA
   DOWNLOAD
   API_ACCESS
+  POLICY_DENY
 }
 
 enum SupportConversationStatus {
