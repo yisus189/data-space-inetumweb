@@ -5,7 +5,8 @@ function errorHandler(err, req, res, next) {
     return next(err);
   }
 
-  const status = err.status || 500;
+  const isCorsDenied = err && err.message === 'Origen no permitido por CORS';
+  const status = err.status || (isCorsDenied ? 403 : 500);
   const message = err.message || 'Error interno del servidor';
 
   res.status(status).json({ error: message });

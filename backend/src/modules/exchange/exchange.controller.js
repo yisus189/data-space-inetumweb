@@ -18,7 +18,12 @@ async function accessDatasetController(req, res, next) {
       userAgent: req.headers['user-agent'] || ''
     };
 
-    const result = await prepareDatasetAccess(user, datasetId, clientInfo);
+    const accessContext = {
+      action: req.query.action,
+      purpose: req.query.purpose
+    };
+
+    const result = await prepareDatasetAccess(user, datasetId, clientInfo, accessContext);
 
     if (result.mode === 'FILE') {
       return res.download(result.filePath, result.suggestedFilename);
@@ -28,7 +33,10 @@ async function accessDatasetController(req, res, next) {
       // Opción 1: devolvemos la URL para que el frontend decida qué hacer
       return res.json({
         mode: 'EXTERNAL_API',
-        externalUrl: result.externalUrl
+        externalUrl: result.externalUrl,
+        connectorToken: result.connectorToken || null,
+        connectorTokenExpiresAt: result.connectorTokenExpiresAt || null,
+        connectorTransport: result.connectorTransport || null
       });
     }
 
@@ -56,7 +64,12 @@ async function proxyExternalApiController(req, res, next) {
       userAgent: req.headers['user-agent'] || ''
     };
 
-    const result = await prepareDatasetAccess(user, datasetId, clientInfo);
+    const accessContext = {
+      action: req.query.action,
+      purpose: req.query.purpose
+    };
+
+    const result = await prepareDatasetAccess(user, datasetId, clientInfo, accessContext);
 
     if (result.mode !== 'EXTERNAL_API') {
       return res
