@@ -29,6 +29,9 @@ async function buildSelfDescription() {
   const tags = [...new Set(datasets.flatMap((d) => [d.category, ...splitTags(d.tags)].filter(Boolean)))];
 
   return {
+    version: '2.0.0',
+    issuedAt: new Date().toISOString(),
+    profile: 'dssc-self-description',
     authority: {
       entityId: process.env.DATASPACE_AUTHORITY_ID || 'inetum-governance-authority',
       name: process.env.DATASPACE_AUTHORITY_NAME || 'Inetum Data Space Governance',
@@ -109,7 +112,23 @@ async function buildSelfDescription() {
       correctness: null,
       score: null,
       updatedAt: d.updatedAt
-    }))
+    })),
+    capabilities: {
+      connectorMode: process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT',
+      supportedExchangeModes: ['FILE', 'EXTERNAL_API'],
+      policyEnforcement: {
+        engine: 'ODRL_MVP_PLUS',
+        supportedLeftOperands: ['purpose', 'dateTime', 'assignee', 'assigner', 'target'],
+        supportedOperators: ['eq', 'neq', 'isAnyOf', 'gteq', 'gt', 'after', 'lteq', 'lt', 'before']
+      }
+    },
+    security: {
+      auth: 'JWT',
+      jwtIssuer: process.env.JWT_ISSUER || 'inetum-dataspace',
+      jwtAudience: process.env.JWT_AUDIENCE || 'inetum-dataspace-api',
+      queryTokenEnabled: process.env.ALLOW_QUERY_TOKEN === 'true',
+      tlsRequired: process.env.TLS_REQUIRED === 'true'
+    }
   };
 }
 

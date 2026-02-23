@@ -66,7 +66,7 @@ function resolveFilePath(storageUri) {
  * - Registra acceso DOWNLOAD.
  * - Devuelve { filePath, suggestedFilename }.
  */
-async function prepareFileDownload(user, dataset, contract, clientInfo, resolvedPurpose) {
+async function prepareFileDownload(user, dataset, contract, clientInfo, resolvedPurpose, policyDecision) {
   if (!dataset.storageUri) {
     const err = new Error('El dataset no tiene storageUri configurado');
     err.status = 500;
@@ -91,7 +91,7 @@ async function prepareFileDownload(user, dataset, contract, clientInfo, resolved
     purpose: resolvedPurpose,
     ipAddress: clientInfo.ipAddress,
     userAgent: clientInfo.userAgent,
-    extra: { note: 'File download (FILE storageType)', policyDecision: 'ALLOW' }
+    extra: { note: 'File download (FILE storageType)', policyDecision: 'ALLOW', matchedRuleType: policyDecision.matchedRuleType }
   });
 
   const suggestedFilename =
@@ -110,7 +110,7 @@ async function prepareFileDownload(user, dataset, contract, clientInfo, resolved
  *   - Abrirla en nueva pestaña, o
  *   - Hacer un segundo endpoint de proxy.
  */
-async function prepareExternalApiAccess(user, dataset, contract, clientInfo, resolvedPurpose) {
+async function prepareExternalApiAccess(user, dataset, contract, clientInfo, resolvedPurpose, policyDecision) {
   if (!dataset.storageUri) {
     const err = new Error('El dataset no tiene URL externa configurada');
     err.status = 500;
@@ -125,7 +125,7 @@ async function prepareExternalApiAccess(user, dataset, contract, clientInfo, res
     purpose: resolvedPurpose,
     ipAddress: clientInfo.ipAddress,
     userAgent: clientInfo.userAgent,
-    extra: { note: 'External API access (EXTERNAL_API storageType)', policyDecision: 'ALLOW' }
+    extra: { note: 'External API access (EXTERNAL_API storageType)', policyDecision: 'ALLOW', matchedRuleType: policyDecision.matchedRuleType }
   });
 
   return {
@@ -177,6 +177,17 @@ function resolveAccessAction(dataset, accessContext) {
 
   return 'download';
 }
+function buildPolicyContext({ user, dataset, contract, action, purpose }) {
+  return {
+    action,
+    purpose,
+    now: new Date(),
+    assignee: `urn:dataspace:user:${user.id}`,
+    assigner: `urn:dataspace:user:${contract.providerId}`,
+    target: `urn:dataspace:dataset:${dataset.id}`
+  };
+}
+
 /**
  * Lógica principal de acceso/descarga de dataset.
  * - Verifica que el dataset existe.
@@ -210,13 +221,37 @@ async function prepareDatasetAccess(user, datasetId, clientInfo, accessContext =
     contract.accessRequest?.requestedPurpose ||
     null;
 
-  const policyDecision = evaluateOdrlPolicy(contract.odrlPolicy, {
+  const policyContext = buildPolicyContext({
+    user,
+    dataset,
+    contract,
     action,
-    purpose: resolvedPurpose,
-    now: new Date()
+    purpose: resolvedPurpose
   });
 
+  const policyDecision = evaluateOdrlPolicy(contract.odrlPolicy, policyContext);
+
   if (!policyDecision.allow) {
+    await logAccess({
+      userId: user.id,
+      datasetId: dataset.id,
+      contractId: contract.id,
+      action: 'POLICY_DENY',
+      purpose: resolvedPurpose,
+      ipAddress: clientInfo.ipAddress,
+      userAgent: clientInfo.userAgent,
+      extra: {
+        note: 'Policy denied dataset access',
+        policyDecision: 'DENY',
+        reason: policyDecision.reason,
+        matchedRuleType: policyDecision.matchedRuleType,
+        action,
+        assignee: policyContext.assignee,
+        assigner: policyContext.assigner,
+        target: policyContext.target
+      }
+    });
+
     const err = new Error(policyDecision.reason);
     err.status = 403;
     throw err;
@@ -234,7 +269,8 @@ async function prepareDatasetAccess(user, datasetId, clientInfo, accessContext =
       dataset,
       contract,
       clientInfo,
-      resolvedPurpose
+      resolvedPurpose,
+      policyDecision
     );
     return {
       mode: 'FILE',
@@ -249,7 +285,8 @@ async function prepareDatasetAccess(user, datasetId, clientInfo, accessContext =
       dataset,
       contract,
       clientInfo,
-      resolvedPurpose
+      resolvedPurpose,
+      policyDecision
     );
     return {
       mode: 'EXTERNAL_API',
