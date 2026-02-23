@@ -1,4 +1,5 @@
 const prisma = require('../../config/db');
+const { revokeContractInConnector } = require('../connectors/dssc-connector.service');
 
 /**
  * Lista contratos de un consumer.
@@ -78,6 +79,12 @@ async function revokeContract(contractId) {
     where: { id: contractId },
     data: { status: 'REVOKED' }
   });
+
+  try {
+    await revokeContractInConnector(updated);
+  } catch (connectorError) {
+    console.error('Error revocando contrato en conector DSSC:', connectorError.message);
+  }
 
   return updated;
 }

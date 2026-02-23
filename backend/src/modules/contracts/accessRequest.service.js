@@ -1,4 +1,5 @@
 const prisma = require('../../config/db');
+const { syncContractToConnector } = require('../connectors/dssc-connector.service');
 
 /**
  * Consumer crea solicitud de acceso a un dataset publicado.
@@ -18,6 +19,12 @@ async function createAccessRequest(consumerId, data) {
 
   if (!dataset || !dataset.published) {
     const err = new Error('Dataset no existe o no está publicado');
+    err.status = 400;
+    throw err;
+  }
+
+  if (dataset.status !== 'ACTIVE' || dataset.blocked) {
+    const err = new Error('Dataset bloqueado o no activo');
     err.status = 400;
     throw err;
   }
@@ -220,6 +227,19 @@ async function approveAccessRequest(
 
     return updatedReq;
   });
+
+  const createdContract = await prisma.contract.findFirst({
+    where: { accessRequestId: requestId },
+    orderBy: { id: 'desc' }
+  });
+
+  if (createdContract) {
+    try {
+      await syncContractToConnector(createdContract);
+    } catch (connectorError) {
+      console.error('Error sincronizando contrato con conector DSSC:', connectorError.message);
+    }
+  }
 
   return updatedAR;
 }

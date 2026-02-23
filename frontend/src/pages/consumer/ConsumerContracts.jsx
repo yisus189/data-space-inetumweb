@@ -17,7 +17,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import { listMyContractsAsConsumer } from '../../api/contractsApi.js';
 
-const API_URL = 'http://localhost:4000';
+const API_URL = 'http://localhost:4001';
 
 function ConsumerContracts() {
   const [contracts, setContracts] = useState([]);
@@ -45,7 +45,7 @@ function ConsumerContracts() {
     loadContracts();
   }, []);
 
-  const handleAccessData = (contract) => {
+  const handleAccessData = async (contract) => {
     const datasetId = contract.datasetId;
     const storageType = contract.dataset?.storageType || 'FILE';
 
@@ -55,40 +55,83 @@ function ConsumerContracts() {
       return;
     }
 
-    if (storageType === 'FILE') {
-      const url = `${API_URL}/exchange/datasets/${datasetId}/download?token=${token}`;
-      window.open(url, '_blank');
-      return;
+    const purpose =
+      contract.accessRequest?.agreedPurpose ||
+      contract.accessRequest?.requestedPurpose ||
+      '';
+
+    const query = new URLSearchParams();
+    if (purpose) {
+      query.set('purpose', purpose);
     }
 
-    if (storageType === 'EXTERNAL_API') {
-      fetch(
-        `${API_URL}/exchange/datasets/${datasetId}/download?token=${encodeURIComponent(
-          token
-        )}`
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.mode === 'EXTERNAL_API' && data.externalUrl) {
-            if (
-              window.confirm(
-                `Este dataset se sirve desde una URL externa:\n\n${data.externalUrl}\n\n¿Quieres abrirla en una nueva pestaña?`
-              )
-            ) {
-              window.open(data.externalUrl, '_blank');
+    try {
+      if (storageType === 'FILE') {
+        const response = await fetch(
+          `${API_URL}/exchange/datasets/${datasetId}/download?${query.toString()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
             }
-          } else {
-            alert('Respuesta inesperada del servidor para EXTERNAL_API.');
           }
-        })
-        .catch((err) => {
-          alert(err.message || 'Error al acceder a datos externos');
-        });
+        );
 
-      return;
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Error al descargar dataset');
+        }
+
+        const blob = await response.blob();
+        const fileUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = fileUrl;
+        a.download = `${contract.dataset?.name || 'dataset'}.dat`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(fileUrl);
+        return;
+      }
+
+      if (storageType === 'EXTERNAL_API') {
+        const response = await fetch(
+          `${API_URL}/exchange/datasets/${datasetId}/download?${query.toString()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Error al acceder a datos externos');
+        }
+
+        if (data.mode === 'EXTERNAL_API' && data.externalUrl) {
+          if (
+            window.confirm(
+              `Este dataset se sirve desde una URL externa:
+
+${data.externalUrl}
+
+¿Quieres abrirla en una nueva pestaña?`
+            )
+          ) {
+            window.open(data.externalUrl, '_blank', 'noopener,noreferrer');
+          }
+        } else {
+          alert('Respuesta inesperada del servidor para EXTERNAL_API.');
+        }
+
+        return;
+      }
+
+      alert(`Este tipo de almacenamiento no está soportado aún: ${storageType}`);
+    } catch (err) {
+      alert(err.message || 'Error al acceder a datos');
     }
-
-    alert(`Este tipo de almacenamiento no está soportado aún: ${storageType}`);
   };
 
   const buildContractSummary = (contract) => {
