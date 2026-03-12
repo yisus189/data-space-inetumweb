@@ -25,6 +25,7 @@ const auditRoutes = require('./modules/audit/audit.routes');
 const datasetUploadRoutes = require('./modules/catalog/upload.routes');
 const supportRoutes = require('./modules/support/support.routes');
 const selfDescriptionRoutes = require('./modules/selfDescription/selfDescription.routes');
+const connectorRoutes = require('./modules/connectors/connector.routes');
 dotenv.config();
 
 const app = express();
@@ -88,6 +89,7 @@ app.use('/exchange', exchangeRoutes);
 app.use('/audit', auditRoutes);
 app.use('/catalog/upload', datasetUploadRoutes);
 app.use('/self-description', selfDescriptionRoutes);
+app.use('/connector', connectorRoutes);
 
 // Health check
 app.get('/', (req, res) => {

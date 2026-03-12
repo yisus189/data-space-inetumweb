@@ -115,6 +115,14 @@ async function buildSelfDescription() {
     })),
     capabilities: {
       connectorMode: process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT',
+      controlPlane: {
+        contractSync: true,
+        contractRevocation: true
+      },
+      dataPlane: {
+        mediatedAccess: true,
+        supportedExchangeModes: ['FILE', 'EXTERNAL_API']
+      },
       supportedExchangeModes: ['FILE', 'EXTERNAL_API'],
       policyEnforcement: {
         engine: 'ODRL_MVP_PLUS',
@@ -126,8 +134,15 @@ async function buildSelfDescription() {
       auth: 'JWT',
       jwtIssuer: process.env.JWT_ISSUER || 'inetum-dataspace',
       jwtAudience: process.env.JWT_AUDIENCE || 'inetum-dataspace-api',
+      jwtAlgorithm: (process.env.JWT_ALGORITHM || 'HS256').toUpperCase(),
+      jwksEndpoint: '/auth/.well-known/jwks.json',
+      tokenMetadataEndpoint: '/auth/token-metadata',
       queryTokenEnabled: process.env.ALLOW_QUERY_TOKEN === 'true',
-      tlsRequired: process.env.TLS_REQUIRED === 'true'
+      tlsRequired: process.env.TLS_REQUIRED === 'true',
+      trustFramework: {
+        mtlsEnabled: process.env.DSSC_CONNECTOR_MTLS_ENABLED === 'true',
+        connectorStatusEndpoint: '/connector/status'
+      }
     }
   };
 }

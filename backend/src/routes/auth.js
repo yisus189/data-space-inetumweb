@@ -3,7 +3,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { UserStatus } = require('@prisma/client');
 const prisma = require('../config/db');
-const { generateToken } = require('../middleware/auth');
+const { generateToken, getJwks, getJwtSignConfig } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -24,6 +24,22 @@ function validatePasswordStrength(password) {
     /[^A-Za-z0-9]/.test(password)
   );
 }
+
+
+router.get('/.well-known/jwks.json', (req, res) => {
+  const jwks = getJwks();
+  res.json(jwks);
+});
+
+router.get('/token-metadata', (req, res) => {
+  const config = getJwtSignConfig();
+  res.json({
+    issuer: process.env.JWT_ISSUER || 'inetum-dataspace',
+    audience: process.env.JWT_AUDIENCE || 'inetum-dataspace-api',
+    algorithm: config.algorithm,
+    kid: config.kid
+  });
+});
 
 /**
  * POST /auth/register

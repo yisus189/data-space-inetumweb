@@ -4,6 +4,7 @@ const prisma = require('../../config/db');
 const fetch = require('node-fetch'); // para proxy/streaming
 const { validateContractIsCurrentlyUsable } = require('../contracts/contract-validation.service');
 const { evaluateOdrlPolicy } = require('./odrl-policy.service');
+const { requestDataPlaneAccess } = require('../connectors/dssc-connector.service');
 
 /**
  * Busca contrato activo para un user y dataset.
@@ -110,12 +111,20 @@ async function prepareFileDownload(user, dataset, contract, clientInfo, resolved
  *   - Abrirla en nueva pestaña, o
  *   - Hacer un segundo endpoint de proxy.
  */
-async function prepareExternalApiAccess(user, dataset, contract, clientInfo, resolvedPurpose, policyDecision) {
+async function prepareExternalApiAccess(user, dataset, contract, clientInfo, resolvedPurpose, policyDecision, action) {
   if (!dataset.storageUri) {
     const err = new Error('El dataset no tiene URL externa configurada');
     err.status = 500;
     throw err;
   }
+
+  const connectorAccess = await requestDataPlaneAccess({
+    dataset,
+    contract,
+    consumerId: user.id,
+    purpose: resolvedPurpose,
+    action
+  });
 
   await logAccess({
     userId: user.id,
@@ -125,11 +134,22 @@ async function prepareExternalApiAccess(user, dataset, contract, clientInfo, res
     purpose: resolvedPurpose,
     ipAddress: clientInfo.ipAddress,
     userAgent: clientInfo.userAgent,
-    extra: { note: 'External API access (EXTERNAL_API storageType)', policyDecision: 'ALLOW', matchedRuleType: policyDecision.matchedRuleType }
+    extra: {
+      note: 'External API access (EXTERNAL_API storageType)',
+      policyDecision: 'ALLOW',
+      matchedRuleType: policyDecision.matchedRuleType,
+      connectorMode: connectorAccess.mode,
+      connectorTransport: connectorAccess.transport,
+      connectorEndpoint: connectorAccess.endpoint,
+      connectorTokenIssued: Boolean(connectorAccess.token)
+    }
   });
 
   return {
-    externalUrl: dataset.storageUri
+    externalUrl: connectorAccess.endpoint || dataset.storageUri,
+    connectorToken: connectorAccess.token || null,
+    connectorTokenExpiresAt: connectorAccess.expiresAt || null,
+    connectorTransport: connectorAccess.transport
   };
 }
 
@@ -280,17 +300,21 @@ async function prepareDatasetAccess(user, datasetId, clientInfo, accessContext =
   }
 
   if (dataset.storageType === 'EXTERNAL_API') {
-    const { externalUrl } = await prepareExternalApiAccess(
+    const { externalUrl, connectorToken, connectorTokenExpiresAt, connectorTransport } = await prepareExternalApiAccess(
       user,
       dataset,
       contract,
       clientInfo,
       resolvedPurpose,
-      policyDecision
+      policyDecision,
+      action
     );
     return {
       mode: 'EXTERNAL_API',
-      externalUrl
+      externalUrl,
+      connectorToken,
+      connectorTokenExpiresAt,
+      connectorTransport
     };
   }
 
