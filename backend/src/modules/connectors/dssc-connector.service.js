@@ -5,15 +5,27 @@ const CONNECTOR_BASE_URL = process.env.DSSC_CONNECTOR_BASE_URL || null;
 const CONNECTOR_API_KEY = process.env.DSSC_CONNECTOR_API_KEY || null;
 const CONNECTOR_TIMEOUT_MS = Number(process.env.DSSC_CONNECTOR_TIMEOUT_MS || 5000);
 const CONNECTOR_RETRY_MAX = Number(process.env.DSSC_CONNECTOR_RETRY_MAX || 2);
+const CONNECTOR_RETRY_BASE_MS = Number(process.env.DSSC_CONNECTOR_RETRY_BASE_MS || 150);
 const CIRCUIT_BREAKER_THRESHOLD = Number(process.env.DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD || 5);
 const CIRCUIT_BREAKER_COOLDOWN_MS = Number(process.env.DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS || 30000);
 const ADAPTER_CONTRACT_VERSION = '1.0';
 const SUPPORTED_DATA_ACTIONS = new Set(['use', 'download', 'read']);
+const MAX_PENDING_OPERATIONS = Number(process.env.DSSC_CONNECTOR_PENDING_MAX || 500);
 
 const connectorCircuitState = {
   failures: 0,
   openUntil: 0
 };
+
+const adapterMetrics = {
+  calls: 0,
+  successes: 0,
+  failures: 0,
+  retries: 0,
+  queuedForReconcile: 0
+};
+
+const pendingOperations = [];
 
 function nowMs() {
   return Date.now();
@@ -36,10 +48,12 @@ function ensureCircuitClosed() {
 function trackConnectorSuccess() {
   connectorCircuitState.failures = 0;
   connectorCircuitState.openUntil = 0;
+  adapterMetrics.successes += 1;
 }
 
 function trackConnectorFailure() {
   connectorCircuitState.failures += 1;
+  adapterMetrics.failures += 1;
   if (connectorCircuitState.failures >= CIRCUIT_BREAKER_THRESHOLD) {
     connectorCircuitState.openUntil = nowMs() + CIRCUIT_BREAKER_COOLDOWN_MS;
   }
@@ -48,7 +62,6 @@ function trackConnectorFailure() {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
 
 function normalizeConnectorContext(context = {}, operation) {
   return {
@@ -97,7 +110,6 @@ function validateContractPayload(contract) {
     err.code = 'INVALID_CONNECTOR_CONTRACT_PAYLOAD';
     throw err;
   }
-
 }
 
 function validateDataPlanePayload({ dataset, contract, consumerId, action }) {
@@ -140,10 +152,50 @@ async function fetchWithTimeout(url, options) {
       throw err;
     }
 
-    throw error;
+    const err = new Error(error.message || 'Error de red al invocar conector DSSC');
+    err.status = 502;
+    err.code = 'CONNECTOR_NETWORK_ERROR';
+    throw err;
   } finally {
     clearTimeout(timeoutHandle);
   }
+}
+
+function isRetryableConnectorError(error) {
+  if (!error) return false;
+  if (error.code === 'CONNECTOR_TIMEOUT' || error.code === 'CONNECTOR_NETWORK_ERROR') return true;
+  if (error.code === 'CONNECTOR_UPSTREAM_ERROR' && error.upstreamStatus >= 500) return true;
+  if (error.status && error.status >= 500) return true;
+  return false;
+}
+
+function computeBackoffWithJitter(attempt) {
+  const exp = CONNECTOR_RETRY_BASE_MS * (2 ** Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * CONNECTOR_RETRY_BASE_MS);
+  return exp + jitter;
+}
+
+function enqueuePendingOperation({ operation, payload, context, reason }) {
+  if (pendingOperations.length >= MAX_PENDING_OPERATIONS) {
+    pendingOperations.shift();
+  }
+
+  pendingOperations.push({
+    id: `pending-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    operation,
+    payload,
+    context,
+    reason,
+    createdAt: new Date().toISOString(),
+    retryCount: 0,
+    lastTriedAt: null
+  });
+
+  adapterMetrics.queuedForReconcile += 1;
+}
+
+function listPendingConnectorOperations() {
+  return pendingOperations.map((entry) => ({ ...entry }));
 }
 
 async function postToConnector(path, payload, context = {}) {
@@ -154,6 +206,7 @@ async function postToConnector(path, payload, context = {}) {
   }
 
   ensureCircuitClosed();
+  adapterMetrics.calls += 1;
 
   let attempts = 0;
   let lastError = null;
@@ -187,18 +240,17 @@ async function postToConnector(path, payload, context = {}) {
       lastError = error;
       trackConnectorFailure();
 
-      const retryable = !error.status || error.status >= 500;
-      if (!retryable || attempts > CONNECTOR_RETRY_MAX) {
+      if (!isRetryableConnectorError(error) || attempts > CONNECTOR_RETRY_MAX) {
         break;
       }
 
-      await sleep(150 * attempts);
+      adapterMetrics.retries += 1;
+      await sleep(computeBackoffWithJitter(attempts));
     }
   }
 
   throw lastError;
 }
-
 
 function validateControlPlaneResponse(data, operation) {
   if (!data || typeof data !== 'object') {
@@ -244,20 +296,26 @@ async function syncContractToConnector(contract, context = {}) {
 
   const payload = buildContractPayload(contract);
   const operation = 'control-plane.contract.sync';
-  const connectorResponse = await postToConnector('/control-plane/contracts/sync', payload, normalizeConnectorContext({
-    ...context,
-    idempotencyKey: context.idempotencyKey || `sync-contract-${contract.id}`
-  }, operation));
 
-  validateControlPlaneResponse(connectorResponse.data, operation);
+  try {
+    const connectorResponse = await postToConnector('/control-plane/contracts/sync', payload, normalizeConnectorContext({
+      ...context,
+      idempotencyKey: context.idempotencyKey || `sync-contract-${contract.id}`
+    }, operation));
 
-  return {
-    mode: CONNECTOR_MODE,
-    synced: true,
-    attempts: connectorResponse.attempts,
-    adapterMeta: buildAdapterMeta(operation, connectorResponse.attempts),
-    result: connectorResponse.data
-  };
+    validateControlPlaneResponse(connectorResponse.data, operation);
+
+    return {
+      mode: CONNECTOR_MODE,
+      synced: true,
+      attempts: connectorResponse.attempts,
+      adapterMeta: buildAdapterMeta(operation, connectorResponse.attempts),
+      result: connectorResponse.data
+    };
+  } catch (error) {
+    enqueuePendingOperation({ operation, payload, context, reason: error.code || error.message });
+    throw error;
+  }
 }
 
 async function revokeContractInConnector(contract, context = {}) {
@@ -272,24 +330,31 @@ async function revokeContractInConnector(contract, context = {}) {
   validateContractPayload(contract);
 
   const operation = 'control-plane.contract.revoke';
-  const connectorResponse = await postToConnector('/control-plane/contracts/revoke', {
+  const payload = {
     contractId: contract.id,
     datasetId: contract.datasetId,
     consumerId: contract.consumerId
-  }, normalizeConnectorContext({
-    ...context,
-    idempotencyKey: context.idempotencyKey || `revoke-contract-${contract.id}`
-  }, operation));
-
-  validateControlPlaneResponse(connectorResponse.data, operation);
-
-  return {
-    mode: CONNECTOR_MODE,
-    revoked: true,
-    attempts: connectorResponse.attempts,
-    adapterMeta: buildAdapterMeta(operation, connectorResponse.attempts),
-    result: connectorResponse.data
   };
+
+  try {
+    const connectorResponse = await postToConnector('/control-plane/contracts/revoke', payload, normalizeConnectorContext({
+      ...context,
+      idempotencyKey: context.idempotencyKey || `revoke-contract-${contract.id}`
+    }, operation));
+
+    validateControlPlaneResponse(connectorResponse.data, operation);
+
+    return {
+      mode: CONNECTOR_MODE,
+      revoked: true,
+      attempts: connectorResponse.attempts,
+      adapterMeta: buildAdapterMeta(operation, connectorResponse.attempts),
+      result: connectorResponse.data
+    };
+  } catch (error) {
+    enqueuePendingOperation({ operation, payload, context, reason: error.code || error.message });
+    throw error;
+  }
 }
 
 async function requestDataPlaneAccess(input, context = {}) {
@@ -335,6 +400,43 @@ async function requestDataPlaneAccess(input, context = {}) {
   };
 }
 
+async function retryPendingConnectorOperations(limit = 20) {
+  const max = Math.max(1, Number(limit) || 20);
+  const snapshot = pendingOperations.slice(0, max);
+  let retried = 0;
+  let succeeded = 0;
+
+  for (const item of snapshot) {
+    retried += 1;
+    item.retryCount += 1;
+    item.lastTriedAt = new Date().toISOString();
+
+    try {
+      if (item.operation === 'control-plane.contract.sync') {
+        await postToConnector('/control-plane/contracts/sync', item.payload, normalizeConnectorContext(item.context || {}, item.operation));
+      } else if (item.operation === 'control-plane.contract.revoke') {
+        await postToConnector('/control-plane/contracts/revoke', item.payload, normalizeConnectorContext(item.context || {}, item.operation));
+      } else {
+        continue;
+      }
+
+      const idx = pendingOperations.findIndex((entry) => entry.id === item.id);
+      if (idx >= 0) {
+        pendingOperations.splice(idx, 1);
+      }
+      succeeded += 1;
+    } catch (error) {
+      item.reason = error.code || error.message;
+    }
+  }
+
+  return {
+    retried,
+    succeeded,
+    pending: pendingOperations.length
+  };
+}
+
 async function getConnectorStatus() {
   if (CONNECTOR_MODE !== 'DSSC_HTTP') {
     return {
@@ -345,7 +447,9 @@ async function getConnectorStatus() {
         failures: connectorCircuitState.failures,
         open: false,
         openUntil: null
-      }
+      },
+      metrics: adapterMetrics,
+      pendingOperations: pendingOperations.length
     };
   }
 
@@ -353,7 +457,9 @@ async function getConnectorStatus() {
     return {
       mode: CONNECTOR_MODE,
       healthy: false,
-      details: 'Falta DSSC_CONNECTOR_BASE_URL'
+      details: 'Falta DSSC_CONNECTOR_BASE_URL',
+      metrics: adapterMetrics,
+      pendingOperations: pendingOperations.length
     };
   }
 
@@ -370,7 +476,9 @@ async function getConnectorStatus() {
         failures: connectorCircuitState.failures,
         open: connectorCircuitState.openUntil > nowMs(),
         openUntil: connectorCircuitState.openUntil > 0 ? new Date(connectorCircuitState.openUntil).toISOString() : null
-      }
+      },
+      metrics: adapterMetrics,
+      pendingOperations: pendingOperations.length
     };
   } catch (error) {
     return {
@@ -381,7 +489,9 @@ async function getConnectorStatus() {
         failures: connectorCircuitState.failures,
         open: connectorCircuitState.openUntil > nowMs(),
         openUntil: connectorCircuitState.openUntil > 0 ? new Date(connectorCircuitState.openUntil).toISOString() : null
-      }
+      },
+      metrics: adapterMetrics,
+      pendingOperations: pendingOperations.length
     };
   }
 }
@@ -390,5 +500,7 @@ module.exports = {
   syncContractToConnector,
   revokeContractInConnector,
   requestDataPlaneAccess,
-  getConnectorStatus
+  getConnectorStatus,
+  listPendingConnectorOperations,
+  retryPendingConnectorOperations
 };

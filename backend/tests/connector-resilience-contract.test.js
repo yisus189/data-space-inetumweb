@@ -82,3 +82,31 @@ test('Fase 3 interfaz: local enforcement devuelve adapterMeta versionado', async
   assert.equal(result.adapterMeta.contractVersion, '1.0');
   assert.equal(result.adapterMeta.operation, 'data-plane.access.request');
 });
+
+
+test('Fase 3 resiliencia: queuea operaciones de control-plane fallidas para reconciliación', async () => {
+  const {
+    syncContractToConnector,
+    listPendingConnectorOperations
+  } = loadConnectorService({
+    DATASPACE_CONNECTOR_MODE: 'DSSC_HTTP',
+    DSSC_CONNECTOR_BASE_URL: 'http://localhost:9999',
+    DSSC_CONNECTOR_RETRY_MAX: 0
+  });
+
+  await assert.rejects(
+    () =>
+      syncContractToConnector({
+        id: 10,
+        providerId: 3,
+        consumerId: 9,
+        datasetId: 7,
+        status: 'ACTIVE'
+      }),
+    (error) => ['CONNECTOR_NETWORK_ERROR', 'CONNECTOR_UPSTREAM_ERROR', 'CONNECTOR_TIMEOUT'].includes(error.code)
+  );
+
+  const pending = listPendingConnectorOperations();
+  assert.ok(pending.length >= 1);
+  assert.equal(pending[0].operation, 'control-plane.contract.sync');
+});

@@ -35,10 +35,13 @@ Objetivo: evitar acoplamiento débil y fallos silenciosos al recibir el conector
 
 El adapter incluye:
 - Timeout configurable por operación (`DSSC_CONNECTOR_TIMEOUT_MS`).
-- Reintentos con backoff (`DSSC_CONNECTOR_RETRY_MAX`).
+- Reintentos con backoff exponencial + jitter (`DSSC_CONNECTOR_RETRY_MAX`, `DSSC_CONNECTOR_RETRY_BASE_MS`).
+- Clasificación de errores retryable/no-retryable (`CONNECTOR_TIMEOUT`, `CONNECTOR_NETWORK_ERROR`, `CONNECTOR_UPSTREAM_ERROR`).
 - Circuit breaker (`DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD`, `DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS`).
 - Idempotency-Key por operación de control plane/data plane.
 - Validación de respuesta del conector por tipo de operación (`control-plane`/`data-plane`).
+- Outbox ligera en memoria para operaciones `control-plane` fallidas y reintento manual (`/connector/pending-operations/retry`).
+- Métricas operativas del adapter (calls, successes, failures, retries, queuedForReconcile) expuestas en `GET /connector/status`.
 
 ## 4) Trust operacional
 
@@ -56,6 +59,7 @@ DSSC_CONNECTOR_BASE_URL=https://connector.vendor.example
 DSSC_CONNECTOR_API_KEY=***
 DSSC_CONNECTOR_TIMEOUT_MS=5000
 DSSC_CONNECTOR_RETRY_MAX=2
+DSSC_CONNECTOR_RETRY_BASE_MS=150
 DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD=5
 DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS=30000
 DSSC_CONNECTOR_MTLS_ENABLED=true
@@ -66,7 +70,7 @@ JWT_KID=inetum-key-2026-01
 ## 6) Pruebas clave previas a conector real
 
 - Tests de Fase 1/2 (contrato, dataset, ODRL, POLICY_DENY).
-- Tests del adapter (validación de payload + estado de resiliencia).
+- Tests del adapter (validación de payload + estado de resiliencia + cola de reconciliación).
 - Validación de build backend/frontend.
 
 Con esto, el proyecto queda listo para integrar un conector específico minimizando riesgo de incompatibilidades.
