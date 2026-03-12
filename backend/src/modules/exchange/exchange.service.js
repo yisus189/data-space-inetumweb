@@ -124,6 +124,8 @@ async function prepareExternalApiAccess(user, dataset, contract, clientInfo, res
     consumerId: user.id,
     purpose: resolvedPurpose,
     action
+  }, {
+    requestId: clientInfo.requestId
   });
 
   await logAccess({
@@ -141,7 +143,9 @@ async function prepareExternalApiAccess(user, dataset, contract, clientInfo, res
       connectorMode: connectorAccess.mode,
       connectorTransport: connectorAccess.transport,
       connectorEndpoint: connectorAccess.endpoint,
-      connectorTokenIssued: Boolean(connectorAccess.token)
+      connectorTokenIssued: Boolean(connectorAccess.token),
+      connectorAttempts: connectorAccess.attempts,
+      requestId: clientInfo.requestId
     }
   });
 

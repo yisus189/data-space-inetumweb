@@ -235,7 +235,9 @@ async function approveAccessRequest(
 
   if (createdContract) {
     try {
-      await syncContractToConnector(createdContract);
+      await syncContractToConnector(createdContract, {
+        idempotencyKey: `approve-access-request-${requestId}`
+      });
     } catch (connectorError) {
       console.error('Error sincronizando contrato con conector DSSC:', connectorError.message);
     }

@@ -81,7 +81,9 @@ async function revokeContract(contractId) {
   });
 
   try {
-    await revokeContractInConnector(updated);
+    await revokeContractInConnector(updated, {
+      idempotencyKey: `revoke-contract-${contractId}`
+    });
   } catch (connectorError) {
     console.error('Error revocando contrato en conector DSSC:', connectorError.message);
   }

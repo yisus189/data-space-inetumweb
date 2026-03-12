@@ -117,13 +117,21 @@ async function buildSelfDescription() {
       connectorMode: process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT',
       controlPlane: {
         contractSync: true,
-        contractRevocation: true
+        contractRevocation: true,
+        idempotencyKeys: true
       },
       dataPlane: {
         mediatedAccess: true,
-        supportedExchangeModes: ['FILE', 'EXTERNAL_API']
+        supportedExchangeModes: ['FILE', 'EXTERNAL_API'],
+        tokenizedAccess: true
       },
       supportedExchangeModes: ['FILE', 'EXTERNAL_API'],
+      resilience: {
+        timeoutMs: Number(process.env.DSSC_CONNECTOR_TIMEOUT_MS || 5000),
+        retryMax: Number(process.env.DSSC_CONNECTOR_RETRY_MAX || 2),
+        circuitBreakerThreshold: Number(process.env.DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD || 5),
+        circuitBreakerCooldownMs: Number(process.env.DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS || 30000)
+      },
       policyEnforcement: {
         engine: 'ODRL_MVP_PLUS',
         supportedLeftOperands: ['purpose', 'dateTime', 'assignee', 'assigner', 'target'],
@@ -141,7 +149,9 @@ async function buildSelfDescription() {
       tlsRequired: process.env.TLS_REQUIRED === 'true',
       trustFramework: {
         mtlsEnabled: process.env.DSSC_CONNECTOR_MTLS_ENABLED === 'true',
-        connectorStatusEndpoint: '/connector/status'
+        connectorStatusEndpoint: '/connector/status',
+        requestIdHeader: 'X-Request-Id',
+        requiresRs256InProduction: true
       }
     }
   };

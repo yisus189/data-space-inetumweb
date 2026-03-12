@@ -11,6 +11,7 @@ const errorHandler = require('./middleware/errorHandler');
 const securityHeaders = require('./middleware/securityHeaders');
 const sanitizeInput = require('./middleware/sanitizeInput');
 const { createRateLimit } = require('./middleware/rateLimit');
+const requestContext = require('./middleware/requestContext');
 
 // Rutas de módulos existentes
 const userRoutes = require('./modules/users/user.routes');
@@ -49,6 +50,7 @@ const authRateLimit = createRateLimit({
 });
 
 // Middlewares globales
+app.use(requestContext);
 app.use(globalRateLimit);
 app.use(securityHeaders);
 app.use(

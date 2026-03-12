@@ -15,7 +15,8 @@ async function accessDatasetController(req, res, next) {
 
     const clientInfo = {
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent'] || ''
+      userAgent: req.headers['user-agent'] || '',
+      requestId: req.requestId
     };
 
     const accessContext = {
@@ -61,7 +62,8 @@ async function proxyExternalApiController(req, res, next) {
 
     const clientInfo = {
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent'] || ''
+      userAgent: req.headers['user-agent'] || '',
+      requestId: req.requestId
     };
 
     const accessContext = {
