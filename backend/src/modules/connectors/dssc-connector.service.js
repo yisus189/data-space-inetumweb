@@ -1,4 +1,6 @@
 const fetch = require('node-fetch');
+const fs = require('fs');
+const https = require('https');
 
 const CONNECTOR_MODE = (process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT').toUpperCase();
 const CONNECTOR_BASE_URL = process.env.DSSC_CONNECTOR_BASE_URL || null;
@@ -11,6 +13,10 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = Number(process.env.DSSC_CONNECTOR_CIRCUIT_BR
 const ADAPTER_CONTRACT_VERSION = '1.0';
 const SUPPORTED_DATA_ACTIONS = new Set(['use', 'download', 'read']);
 const MAX_PENDING_OPERATIONS = Number(process.env.DSSC_CONNECTOR_PENDING_MAX || 500);
+const DSSC_CONNECTOR_MTLS_ENABLED = process.env.DSSC_CONNECTOR_MTLS_ENABLED === 'true';
+const DSSC_CONNECTOR_MTLS_CERT_PATH = process.env.DSSC_CONNECTOR_MTLS_CERT_PATH || null;
+const DSSC_CONNECTOR_MTLS_KEY_PATH = process.env.DSSC_CONNECTOR_MTLS_KEY_PATH || null;
+const DSSC_CONNECTOR_MTLS_CA_PATH = process.env.DSSC_CONNECTOR_MTLS_CA_PATH || null;
 
 const connectorCircuitState = {
   failures: 0,
@@ -135,16 +141,50 @@ function validateDataPlanePayload({ dataset, contract, consumerId, action }) {
   }
 }
 
+
+function ensureMtlsConfigIfEnabled() {
+  if (!DSSC_CONNECTOR_MTLS_ENABLED) return;
+
+  if (!DSSC_CONNECTOR_MTLS_CERT_PATH || !DSSC_CONNECTOR_MTLS_KEY_PATH) {
+    const err = new Error('mTLS habilitado pero faltan DSSC_CONNECTOR_MTLS_CERT_PATH/DSSC_CONNECTOR_MTLS_KEY_PATH');
+    err.status = 500;
+    err.code = 'CONNECTOR_MTLS_CONFIG_INVALID';
+    throw err;
+  }
+}
+
+function buildMtlsAgentIfNeeded() {
+  if (!DSSC_CONNECTOR_MTLS_ENABLED) {
+    return null;
+  }
+
+  ensureMtlsConfigIfEnabled();
+
+  return new https.Agent({
+    cert: fs.readFileSync(DSSC_CONNECTOR_MTLS_CERT_PATH),
+    key: fs.readFileSync(DSSC_CONNECTOR_MTLS_KEY_PATH),
+    ca: DSSC_CONNECTOR_MTLS_CA_PATH ? fs.readFileSync(DSSC_CONNECTOR_MTLS_CA_PATH) : undefined,
+    rejectUnauthorized: true
+  });
+}
+
 async function fetchWithTimeout(url, options) {
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), CONNECTOR_TIMEOUT_MS);
 
   try {
+    const mtlsAgent = buildMtlsAgentIfNeeded();
+
     return await fetch(url, {
       ...options,
-      signal: controller.signal
+      signal: controller.signal,
+      agent: mtlsAgent || undefined
     });
   } catch (error) {
+    if (error.code === 'CONNECTOR_MTLS_CONFIG_INVALID') {
+      throw error;
+    }
+
     if (error.name === 'AbortError') {
       const err = new Error(`Timeout al invocar conector DSSC (${CONNECTOR_TIMEOUT_MS}ms)`);
       err.status = 504;
@@ -449,7 +489,10 @@ async function getConnectorStatus() {
         openUntil: null
       },
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length
+      pendingOperations: pendingOperations.length,
+      trust: {
+        mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      }
     };
   }
 
@@ -459,7 +502,10 @@ async function getConnectorStatus() {
       healthy: false,
       details: 'Falta DSSC_CONNECTOR_BASE_URL',
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length
+      pendingOperations: pendingOperations.length,
+      trust: {
+        mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      }
     };
   }
 
@@ -478,7 +524,10 @@ async function getConnectorStatus() {
         openUntil: connectorCircuitState.openUntil > 0 ? new Date(connectorCircuitState.openUntil).toISOString() : null
       },
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length
+      pendingOperations: pendingOperations.length,
+      trust: {
+        mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      }
     };
   } catch (error) {
     return {
@@ -491,7 +540,10 @@ async function getConnectorStatus() {
         openUntil: connectorCircuitState.openUntil > 0 ? new Date(connectorCircuitState.openUntil).toISOString() : null
       },
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length
+      pendingOperations: pendingOperations.length,
+      trust: {
+        mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      }
     };
   }
 }

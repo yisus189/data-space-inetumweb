@@ -13,8 +13,51 @@ const JWT_KID = process.env.JWT_KID || 'default-hs256';
 const JWT_ALGORITHM = (process.env.JWT_ALGORITHM || 'HS256').toUpperCase();
 const JWT_PRIVATE_KEY = process.env.JWT_PRIVATE_KEY || null;
 const JWT_PUBLIC_KEY = process.env.JWT_PUBLIC_KEY || null;
+const JWT_PUBLIC_KEYS_JSON = process.env.JWT_PUBLIC_KEYS_JSON || null;
+const ENFORCE_RS256_IN_PROD = process.env.ENFORCE_RS256_IN_PROD !== 'false';
+
+function parseJson(value, fallback) {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function buildPublicKeysMap() {
+  const map = new Map();
+
+  if (JWT_PUBLIC_KEY) {
+    map.set(JWT_KID, JWT_PUBLIC_KEY);
+  }
+
+  const extra = JWT_PUBLIC_KEYS_JSON ? parseJson(JWT_PUBLIC_KEYS_JSON, []) : [];
+  if (Array.isArray(extra)) {
+    for (const item of extra) {
+      if (item && item.kid && item.publicKey) {
+        map.set(String(item.kid), String(item.publicKey));
+      }
+    }
+  }
+
+  return map;
+}
+
+function assertTrustConfiguration() {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (isProd && ENFORCE_RS256_IN_PROD && JWT_ALGORITHM !== 'RS256') {
+    throw new Error('Configuración insegura: en producción se requiere JWT_ALGORITHM=RS256');
+  }
+
+  if (JWT_ALGORITHM === 'RS256' && !JWT_PRIVATE_KEY) {
+    throw new Error('Configuración inválida: JWT_PRIVATE_KEY es obligatorio para RS256');
+  }
+}
 
 function getJwtSignConfig() {
+  assertTrustConfiguration();
+
   if (JWT_ALGORITHM === 'RS256' && JWT_PRIVATE_KEY) {
     return {
       algorithm: 'RS256',
@@ -31,8 +74,17 @@ function getJwtSignConfig() {
 }
 
 function getJwtVerifyKey(decodedHeader = {}) {
-  if (JWT_ALGORITHM === 'RS256' && JWT_PUBLIC_KEY) {
-    return JWT_PUBLIC_KEY;
+  if (JWT_ALGORITHM === 'RS256') {
+    const keysMap = buildPublicKeysMap();
+    const keyByKid = decodedHeader.kid ? keysMap.get(String(decodedHeader.kid)) : null;
+
+    if (keyByKid) {
+      return keyByKid;
+    }
+
+    if (JWT_PUBLIC_KEY) {
+      return JWT_PUBLIC_KEY;
+    }
   }
 
   if (decodedHeader.alg === 'HS256' || !decodedHeader.alg) {
@@ -89,6 +141,8 @@ function requireAuth(req, res, next) {
   }
 
   try {
+    assertTrustConfiguration();
+
     const decodedHeader = jwt.decode(token, { complete: true })?.header || {};
     const verifyKey = getJwtVerifyKey(decodedHeader);
     const acceptedAlgorithms = JWT_ALGORITHM === 'RS256' ? ['RS256'] : ['HS256'];
@@ -116,27 +170,29 @@ function requireRole(roles = []) {
 }
 
 function getJwks() {
-  if (JWT_ALGORITHM !== 'RS256' || !JWT_PUBLIC_KEY) {
+  if (JWT_ALGORITHM !== 'RS256') {
     return { keys: [] };
   }
 
-  try {
-    const publicKey = crypto.createPublicKey(JWT_PUBLIC_KEY);
-    const jwk = publicKey.export({ format: 'jwk' });
+  const map = buildPublicKeysMap();
+  const keys = [];
 
-    return {
-      keys: [
-        {
-          ...jwk,
-          use: 'sig',
-          kid: JWT_KID,
-          alg: 'RS256'
-        }
-      ]
-    };
-  } catch (error) {
-    return { keys: [] };
+  for (const [kid, publicPem] of map.entries()) {
+    try {
+      const publicKey = crypto.createPublicKey(publicPem);
+      const jwk = publicKey.export({ format: 'jwk' });
+      keys.push({
+        ...jwk,
+        use: 'sig',
+        kid,
+        alg: 'RS256'
+      });
+    } catch (error) {
+      // omit invalid key material
+    }
   }
+
+  return { keys };
 }
 
 module.exports = {
@@ -144,5 +200,6 @@ module.exports = {
   requireAuth,
   requireRole,
   getJwks,
-  getJwtSignConfig
+  getJwtSignConfig,
+  assertTrustConfiguration
 };

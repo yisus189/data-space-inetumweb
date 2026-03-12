@@ -3,7 +3,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { UserStatus } = require('@prisma/client');
 const prisma = require('../config/db');
-const { generateToken, getJwks, getJwtSignConfig } = require('../middleware/auth');
+const { generateToken, getJwks, getJwtSignConfig, assertTrustConfiguration } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -32,13 +32,22 @@ router.get('/.well-known/jwks.json', (req, res) => {
 });
 
 router.get('/token-metadata', (req, res) => {
-  const config = getJwtSignConfig();
-  res.json({
-    issuer: process.env.JWT_ISSUER || 'inetum-dataspace',
-    audience: process.env.JWT_AUDIENCE || 'inetum-dataspace-api',
-    algorithm: config.algorithm,
-    kid: config.kid
-  });
+  try {
+    assertTrustConfiguration();
+    const config = getJwtSignConfig();
+    const jwks = getJwks();
+
+    res.json({
+      issuer: process.env.JWT_ISSUER || 'inetum-dataspace',
+      audience: process.env.JWT_AUDIENCE || 'inetum-dataspace-api',
+      algorithm: config.algorithm,
+      kid: config.kid,
+      jwksKeyCount: Array.isArray(jwks.keys) ? jwks.keys.length : 0,
+      enforceRs256InProd: process.env.ENFORCE_RS256_IN_PROD !== 'false'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 /**

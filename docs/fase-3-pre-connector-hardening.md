@@ -46,10 +46,11 @@ El adapter incluye:
 ## 4) Trust operacional
 
 Se mantiene y declara:
-- `JWT` con `kid` y soporte `RS256`.
-- Endpoint JWKS y metadatos de token.
+- `JWT` con `kid` y soporte `RS256` con enforcement en producción (`ENFORCE_RS256_IN_PROD`).
+- JWKS multi-key para rotación (`JWT_PUBLIC_KEYS_JSON`) y endpoint de metadatos de token.
 - Header de correlación `X-Request-Id` en requests/responses.
-- Declaración de mTLS y capacidades trust en self-description.
+- mTLS pre-federación en adapter (`DSSC_CONNECTOR_MTLS_ENABLED`) con validación estricta de cert/key.
+- Declaración de capacidades trust en self-description y status operacional.
 
 ## 5) Variables recomendadas
 
@@ -65,6 +66,11 @@ DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS=30000
 DSSC_CONNECTOR_MTLS_ENABLED=true
 JWT_ALGORITHM=RS256
 JWT_KID=inetum-key-2026-01
+JWT_PUBLIC_KEYS_JSON=[{"kid":"inetum-key-2026-01","publicKey":"-----BEGIN PUBLIC KEY-----..."}]
+ENFORCE_RS256_IN_PROD=true
+DSSC_CONNECTOR_MTLS_CERT_PATH=/etc/inetum/connector-client.crt
+DSSC_CONNECTOR_MTLS_KEY_PATH=/etc/inetum/connector-client.key
+DSSC_CONNECTOR_MTLS_CA_PATH=/etc/inetum/connector-ca.crt
 ```
 
 ## 6) Pruebas clave previas a conector real

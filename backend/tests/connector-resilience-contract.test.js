@@ -110,3 +110,25 @@ test('Fase 3 resiliencia: queuea operaciones de control-plane fallidas para reco
   assert.ok(pending.length >= 1);
   assert.equal(pending[0].operation, 'control-plane.contract.sync');
 });
+
+
+test('Trust conector: falla cuando mTLS está habilitado sin cert/key configurados', async () => {
+  const { requestDataPlaneAccess } = loadConnectorService({
+    DATASPACE_CONNECTOR_MODE: 'DSSC_HTTP',
+    DSSC_CONNECTOR_BASE_URL: 'https://connector.example',
+    DSSC_CONNECTOR_MTLS_ENABLED: 'true',
+    DSSC_CONNECTOR_MTLS_CERT_PATH: '',
+    DSSC_CONNECTOR_MTLS_KEY_PATH: ''
+  });
+
+  await assert.rejects(
+    () =>
+      requestDataPlaneAccess({
+        dataset: { id: 7, storageUri: 'https://example.org/data' },
+        contract: { id: 3 },
+        consumerId: 9,
+        action: 'download'
+      }),
+    (error) => error.code === 'CONNECTOR_MTLS_CONFIG_INVALID'
+  );
+});
