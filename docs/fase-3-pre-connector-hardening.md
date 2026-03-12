@@ -19,6 +19,15 @@ Este documento cierra la preparación previa a la integración del conector DSSC
 Se endurece el adapter con validaciones de payload:
 - `syncContractToConnector`: exige `id`, `providerId`, `consumerId`, `datasetId`.
 - `requestDataPlaneAccess`: exige `dataset.id`, `dataset.storageUri`, `contract.id`, `consumerId`, `action`.
+- Acciones de data plane soportadas: `use`, `download`, `read`.
+
+Además, el adapter publica contrato de interoperabilidad interno:
+- Versión de contrato: `1.0` (metadata `adapterMeta`).
+- Headers salientes hacia conector:
+  - `X-Adapter-Contract-Version`
+  - `X-Connector-Operation`
+  - `Idempotency-Key`
+  - `X-Request-Id`
 
 Objetivo: evitar acoplamiento débil y fallos silenciosos al recibir el conector real.
 
@@ -29,6 +38,7 @@ El adapter incluye:
 - Reintentos con backoff (`DSSC_CONNECTOR_RETRY_MAX`).
 - Circuit breaker (`DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD`, `DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS`).
 - Idempotency-Key por operación de control plane/data plane.
+- Validación de respuesta del conector por tipo de operación (`control-plane`/`data-plane`).
 
 ## 4) Trust operacional
 

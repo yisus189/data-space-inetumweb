@@ -47,3 +47,38 @@ test('Fase 3 resiliencia: status refleja circuit breaker en modo local', async (
   assert.equal(status.mode, 'LOCAL_ENFORCEMENT');
   assert.equal(status.circuitBreaker.open, false);
 });
+
+
+test('Fase 3 interfaz: rechaza acciones no soportadas por el adapter', async () => {
+  const { requestDataPlaneAccess } = loadConnectorService({
+    DATASPACE_CONNECTOR_MODE: 'DSSC_HTTP',
+    DSSC_CONNECTOR_BASE_URL: 'http://localhost:9999'
+  });
+
+  await assert.rejects(
+    () =>
+      requestDataPlaneAccess({
+        dataset: { id: 7, storageUri: 'https://example.org/data' },
+        contract: { id: 3 },
+        consumerId: 9,
+        action: 'delete'
+      }),
+    (error) => error.code === 'UNSUPPORTED_CONNECTOR_ACTION'
+  );
+});
+
+test('Fase 3 interfaz: local enforcement devuelve adapterMeta versionado', async () => {
+  const { requestDataPlaneAccess } = loadConnectorService({
+    DATASPACE_CONNECTOR_MODE: 'LOCAL_ENFORCEMENT'
+  });
+
+  const result = await requestDataPlaneAccess({
+    dataset: { id: 7, storageUri: 'https://example.org/data' },
+    contract: { id: 3 },
+    consumerId: 9,
+    action: 'download'
+  });
+
+  assert.equal(result.adapterMeta.contractVersion, '1.0');
+  assert.equal(result.adapterMeta.operation, 'data-plane.access.request');
+});
