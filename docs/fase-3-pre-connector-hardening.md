@@ -47,7 +47,8 @@ El adapter incluye:
 - Circuit breaker (`DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD`, `DSSC_CONNECTOR_CIRCUIT_BREAKER_COOLDOWN_MS`).
 - Idempotency-Key por operación de control plane/data plane.
 - Validación de respuesta del conector por tipo de operación (`control-plane`/`data-plane`).
-- Outbox ligera en memoria para operaciones `control-plane` fallidas y reintento manual (`/connector/pending-operations/retry`).
+- Outbox durable para operaciones `control-plane` fallidas con persistencia en DB (`ConnectorOutbox`) y fallback en memoria controlado.
+- Reintento manual operativo desde `/connector/pending-operations/retry` y consulta de backlog en `/connector/pending-operations`.
 - Métricas operativas del adapter (calls, successes, failures, retries, queuedForReconcile) expuestas en `GET /connector/status`.
 
 ## 4) Trust operacional
@@ -74,6 +75,7 @@ DSSC_CONNECTOR_AUTH_MODE=BEARER # BEARER | CUSTOM_HEADER | NONE
 DSSC_CONNECTOR_AUTH_PREFIX=Bearer
 DSSC_CONNECTOR_AUTH_HEADER=X-Participant-Api-Key
 DSSC_CONNECTOR_TIMEOUT_MS=5000
+DSSC_CONNECTOR_OUTBOX_DRIVER=PRISMA # PRISMA | MEMORY
 DSSC_CONNECTOR_RETRY_MAX=2
 DSSC_CONNECTOR_RETRY_BASE_MS=150
 DSSC_CONNECTOR_CIRCUIT_BREAKER_THRESHOLD=5

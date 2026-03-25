@@ -1,6 +1,7 @@
 const fetchLib = require('node-fetch');
 const fs = require('fs');
 const https = require('https');
+const prisma = require('../../config/db');
 
 const CONNECTOR_MODE = (process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT').toUpperCase();
 const CONNECTOR_BASE_URL = process.env.DSSC_CONNECTOR_BASE_URL || null;
@@ -13,6 +14,7 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = Number(process.env.DSSC_CONNECTOR_CIRCUIT_BR
 const ADAPTER_CONTRACT_VERSION = '1.0';
 const SUPPORTED_DATA_ACTIONS = new Set(['use', 'download', 'read']);
 const MAX_PENDING_OPERATIONS = Number(process.env.DSSC_CONNECTOR_PENDING_MAX || 500);
+const DSSC_CONNECTOR_OUTBOX_DRIVER = (process.env.DSSC_CONNECTOR_OUTBOX_DRIVER || 'PRISMA').toUpperCase();
 const DSSC_CONNECTOR_PROFILE = (process.env.DSSC_CONNECTOR_PROFILE || 'GENERIC').toUpperCase();
 const DSSC_CONNECTOR_SYNC_PATH = process.env.DSSC_CONNECTOR_SYNC_PATH || '/control-plane/contracts/sync';
 const DSSC_CONNECTOR_REVOKE_PATH = process.env.DSSC_CONNECTOR_REVOKE_PATH || '/control-plane/contracts/revoke';
@@ -40,6 +42,8 @@ const adapterMetrics = {
 };
 
 const pendingOperations = [];
+
+const OUTBOX_PENDING_STATUSES = ['PENDING', 'RETRYING'];
 
 const fetchFn = typeof fetchLib === 'function' ? fetchLib : fetchLib.default;
 
@@ -235,10 +239,18 @@ function computeBackoffWithJitter(attempt) {
   return exp + jitter;
 }
 
-function enqueuePendingOperation({ operation, payload, context, reason }) {
+function usePrismaOutbox() {
+  return DSSC_CONNECTOR_OUTBOX_DRIVER === 'PRISMA';
+}
+
+function trimMemoryOutboxIfNeeded() {
   if (pendingOperations.length >= MAX_PENDING_OPERATIONS) {
     pendingOperations.shift();
   }
+}
+
+function enqueueMemoryPendingOperation({ operation, payload, context, reason }) {
+  trimMemoryOutboxIfNeeded();
 
   pendingOperations.push({
     id: `pending-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
@@ -246,16 +258,100 @@ function enqueuePendingOperation({ operation, payload, context, reason }) {
     payload,
     context,
     reason,
+    status: 'PENDING',
     createdAt: new Date().toISOString(),
     retryCount: 0,
     lastTriedAt: null
   });
 
-  adapterMetrics.queuedForReconcile += 1;
 }
 
-function listPendingConnectorOperations() {
-  return pendingOperations.map((entry) => ({ ...entry }));
+async function ensureOutboxCapacityPrisma() {
+  if (!usePrismaOutbox()) return;
+
+  try {
+    const currentCount = await prisma.connectorOutbox.count({
+      where: {
+        status: {
+          in: OUTBOX_PENDING_STATUSES
+        }
+      }
+    });
+
+    if (currentCount < MAX_PENDING_OPERATIONS) return;
+
+    const overflow = currentCount - MAX_PENDING_OPERATIONS + 1;
+    const oldest = await prisma.connectorOutbox.findMany({
+      where: {
+        status: {
+          in: OUTBOX_PENDING_STATUSES
+        }
+      },
+      orderBy: {
+        createdAt: 'asc'
+      },
+      select: { id: true },
+      take: overflow
+    });
+
+    if (oldest.length) {
+      await prisma.connectorOutbox.deleteMany({
+        where: {
+          id: { in: oldest.map((entry) => entry.id) }
+        }
+      });
+    }
+  } catch (error) {
+    // fallback se aplicará en el create del enqueue principal
+  }
+}
+
+async function enqueuePendingOperation({ operation, payload, context, reason }) {
+  adapterMetrics.queuedForReconcile += 1;
+
+  if (!usePrismaOutbox()) {
+    enqueueMemoryPendingOperation({ operation, payload, context, reason });
+    return;
+  }
+
+  try {
+    await ensureOutboxCapacityPrisma();
+    await prisma.connectorOutbox.create({
+      data: {
+        operation,
+        payload,
+        context: context || {},
+        reason,
+        status: 'PENDING'
+      }
+    });
+  } catch (error) {
+    enqueueMemoryPendingOperation({ operation, payload, context, reason: `${reason}; prismaFallback=${error.message}` });
+  }
+}
+
+async function listPendingConnectorOperations(limit = 200) {
+  const take = Math.max(1, Math.min(Number(limit) || 200, MAX_PENDING_OPERATIONS));
+
+  if (!usePrismaOutbox()) {
+    return pendingOperations.slice(0, take).map((entry) => ({ ...entry }));
+  }
+
+  try {
+    return await prisma.connectorOutbox.findMany({
+      where: {
+        status: {
+          in: OUTBOX_PENDING_STATUSES
+        }
+      },
+      orderBy: {
+        createdAt: 'asc'
+      },
+      take
+    });
+  } catch (error) {
+    return pendingOperations.slice(0, take).map((entry) => ({ ...entry }));
+  }
 }
 
 async function postToConnector(path, payload, context = {}) {
@@ -405,7 +501,7 @@ async function syncContractToConnector(contract, context = {}) {
       result: connectorResponse.data
     };
   } catch (error) {
-    enqueuePendingOperation({ operation, payload: connectorPayload, context, reason: error.code || error.message });
+    await enqueuePendingOperation({ operation, payload: connectorPayload, context, reason: error.code || error.message });
     throw error;
   }
 }
@@ -452,7 +548,7 @@ async function revokeContractInConnector(contract, context = {}) {
       result: connectorResponse.data
     };
   } catch (error) {
-    enqueuePendingOperation({ operation, payload: connectorPayload, context, reason: error.code || error.message });
+    await enqueuePendingOperation({ operation, payload: connectorPayload, context, reason: error.code || error.message });
     throw error;
   }
 }
@@ -513,14 +609,12 @@ async function requestDataPlaneAccess(input, context = {}) {
 
 async function retryPendingConnectorOperations(limit = 20) {
   const max = Math.max(1, Number(limit) || 20);
-  const snapshot = pendingOperations.slice(0, max);
+  const snapshot = await listPendingConnectorOperations(max);
   let retried = 0;
   let succeeded = 0;
 
   for (const item of snapshot) {
     retried += 1;
-    item.retryCount += 1;
-    item.lastTriedAt = new Date().toISOString();
 
     try {
       if (item.operation === 'control-plane.contract.sync') {
@@ -531,24 +625,68 @@ async function retryPendingConnectorOperations(limit = 20) {
         continue;
       }
 
-      const idx = pendingOperations.findIndex((entry) => entry.id === item.id);
-      if (idx >= 0) {
-        pendingOperations.splice(idx, 1);
-      }
       succeeded += 1;
+
+      if (usePrismaOutbox() && Number.isInteger(item.id)) {
+        await prisma.connectorOutbox.update({
+          where: { id: item.id },
+          data: {
+            status: 'COMPLETED',
+            lastTriedAt: new Date(),
+            retryCount: {
+              increment: 1
+            },
+            reason: null
+          }
+        });
+      } else {
+        const idx = pendingOperations.findIndex((entry) => entry.id === item.id);
+        if (idx >= 0) {
+          pendingOperations.splice(idx, 1);
+        }
+      }
     } catch (error) {
-      item.reason = error.code || error.message;
+      if (usePrismaOutbox() && Number.isInteger(item.id)) {
+        const newRetryCount = (item.retryCount || 0) + 1;
+        await prisma.connectorOutbox.update({
+          where: { id: item.id },
+          data: {
+            status: 'RETRYING',
+            reason: error.code || error.message,
+            lastTriedAt: new Date(),
+            retryCount: {
+              increment: 1
+            }
+          }
+        });
+
+        if (newRetryCount >= CONNECTOR_RETRY_MAX + 3) {
+          await prisma.connectorOutbox.update({
+            where: { id: item.id },
+            data: {
+              status: 'FAILED'
+            }
+          });
+        }
+      } else {
+        item.reason = error.code || error.message;
+        item.retryCount = (item.retryCount || 0) + 1;
+        item.lastTriedAt = new Date().toISOString();
+      }
     }
   }
+
+  const pending = (await listPendingConnectorOperations(MAX_PENDING_OPERATIONS)).length;
 
   return {
     retried,
     succeeded,
-    pending: pendingOperations.length
+    pending
   };
 }
 
 async function getConnectorStatus() {
+  const pendingCount = (await listPendingConnectorOperations(MAX_PENDING_OPERATIONS)).length;
   if (CONNECTOR_MODE !== 'DSSC_HTTP') {
     return {
       mode: CONNECTOR_MODE,
@@ -560,9 +698,14 @@ async function getConnectorStatus() {
         openUntil: null
       },
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length,
+      pendingOperations: pendingCount,
       trust: {
         mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      },
+      interoperability: {
+        profile: DSSC_CONNECTOR_PROFILE,
+        authMode: DSSC_CONNECTOR_AUTH_MODE,
+        outboxDriver: DSSC_CONNECTOR_OUTBOX_DRIVER
       }
     };
   }
@@ -573,9 +716,14 @@ async function getConnectorStatus() {
       healthy: false,
       details: 'Falta DSSC_CONNECTOR_BASE_URL',
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length,
+      pendingOperations: pendingCount,
       trust: {
         mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      },
+      interoperability: {
+        profile: DSSC_CONNECTOR_PROFILE,
+        authMode: DSSC_CONNECTOR_AUTH_MODE,
+        outboxDriver: DSSC_CONNECTOR_OUTBOX_DRIVER
       }
     };
   }
@@ -595,7 +743,7 @@ async function getConnectorStatus() {
         openUntil: connectorCircuitState.openUntil > 0 ? new Date(connectorCircuitState.openUntil).toISOString() : null
       },
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length,
+      pendingOperations: pendingCount,
       trust: {
         mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
       },
@@ -607,7 +755,8 @@ async function getConnectorStatus() {
           access: DSSC_CONNECTOR_ACCESS_PATH,
           health: DSSC_CONNECTOR_HEALTH_PATH
         },
-        authMode: DSSC_CONNECTOR_AUTH_MODE
+        authMode: DSSC_CONNECTOR_AUTH_MODE,
+        outboxDriver: DSSC_CONNECTOR_OUTBOX_DRIVER
       }
     };
   } catch (error) {
@@ -621,7 +770,7 @@ async function getConnectorStatus() {
         openUntil: connectorCircuitState.openUntil > 0 ? new Date(connectorCircuitState.openUntil).toISOString() : null
       },
       metrics: adapterMetrics,
-      pendingOperations: pendingOperations.length,
+      pendingOperations: pendingCount,
       trust: {
         mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
       },
@@ -633,7 +782,8 @@ async function getConnectorStatus() {
           access: DSSC_CONNECTOR_ACCESS_PATH,
           health: DSSC_CONNECTOR_HEALTH_PATH
         },
-        authMode: DSSC_CONNECTOR_AUTH_MODE
+        authMode: DSSC_CONNECTOR_AUTH_MODE,
+        outboxDriver: DSSC_CONNECTOR_OUTBOX_DRIVER
       }
     };
   }

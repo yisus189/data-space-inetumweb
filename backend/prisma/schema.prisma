@@ -261,6 +261,30 @@ enum AccessAction {
   POLICY_DENY
 }
 
+
+
+enum ConnectorOutboxStatus {
+  PENDING
+  RETRYING
+  FAILED
+  COMPLETED
+}
+
+model ConnectorOutbox {
+  id         Int                  @id @default(autoincrement())
+  operation  String
+  payload    Json
+  context    Json?
+  reason     String?
+  status     ConnectorOutboxStatus @default(PENDING)
+  retryCount Int                  @default(0)
+  lastTriedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
 enum SupportConversationStatus {
   OPEN
   IN_PROGRESS

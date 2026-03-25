@@ -15,7 +15,8 @@ async function getConnectorStatusController(req, res, next) {
 
 async function listPendingConnectorOpsController(req, res, next) {
   try {
-    const pending = listPendingConnectorOperations();
+    const limit = Number(req.query.limit || 200);
+    const pending = await listPendingConnectorOperations(limit);
     res.json({
       count: pending.length,
       items: pending

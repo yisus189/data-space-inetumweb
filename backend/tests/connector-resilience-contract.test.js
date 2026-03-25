@@ -24,11 +24,16 @@ function loadConnectorService(env = {}) {
     'DSSC_CONNECTOR_MTLS_ENABLED',
     'DSSC_CONNECTOR_MTLS_CERT_PATH',
     'DSSC_CONNECTOR_MTLS_KEY_PATH',
-    'DSSC_CONNECTOR_MTLS_CA_PATH'
+    'DSSC_CONNECTOR_MTLS_CA_PATH',
+    'DSSC_CONNECTOR_OUTBOX_DRIVER'
   ];
 
   for (const key of connectorEnvKeys) {
     delete process.env[key];
+  }
+
+  if (!('DSSC_CONNECTOR_OUTBOX_DRIVER' in env)) {
+    process.env.DSSC_CONNECTOR_OUTBOX_DRIVER = 'MEMORY';
   }
 
   for (const [key, value] of Object.entries(env)) {
@@ -135,7 +140,7 @@ test('Fase 3 resiliencia: queuea operaciones de control-plane fallidas para reco
     (error) => ['CONNECTOR_NETWORK_ERROR', 'CONNECTOR_UPSTREAM_ERROR', 'CONNECTOR_TIMEOUT'].includes(error.code)
   );
 
-  const pending = listPendingConnectorOperations();
+  const pending = await listPendingConnectorOperations();
   assert.ok(pending.length >= 1);
   assert.equal(pending[0].operation, 'control-plane.contract.sync');
 });
