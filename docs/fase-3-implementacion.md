@@ -46,6 +46,20 @@ Para datasets `EXTERNAL_API`:
 - `GET /auth/token-metadata` expone `issuer`, `audience`, `algorithm`, `kid`.
 - `GET /connector/status` (solo `OPERATOR`) para validar estado del conector.
 
+
+### Self-description con campos mandatorios y opcionales
+
+Se implementa una política de aceptación para entidades del self-description:
+- **Mandatorios**: si faltan, la entidad se rechaza y no se publica en la sección final.
+- **Opcionales**: si faltan, la entidad sigue siendo válida.
+
+El payload incluye un bloque `validationPolicy` con:
+- Perfil de campos requeridos/opcionales por tipo (`providers`, `dataResources`, `contracts`, etc.).
+- Resumen de aceptados/rechazados por tipo.
+- Detalle de `rejectedEntities` con campos faltantes para trazabilidad.
+
+Esto permite interoperabilidad consistente cuando APIs/datasets tienen distinta completitud de metadatos.
+
 ## 5) Variables de entorno clave
 
 - `DATASPACE_CONNECTOR_MODE=LOCAL_ENFORCEMENT|DSSC_HTTP`
