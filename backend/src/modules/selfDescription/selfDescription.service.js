@@ -1,4 +1,5 @@
 const prisma = require('../../config/db');
+const { buildSelfDescriptionEnrichment } = require('../catalog/connectorCatalogEtl.service');
 
 const REQUIRED_OPTIONAL_PROFILE = {
   providers: {
@@ -11,7 +12,7 @@ const REQUIRED_OPTIONAL_PROFILE = {
   },
   dataResources: {
     required: ['publicationId', 'name', 'providerId', 'format', 'createdAt'],
-    optional: ['description', 'endpoint', 'quality', 'ownership']
+    optional: ['description', 'endpoint', 'quality', 'ownership', 'sourceSystem', 'assetId', 'assetType', 'connectorProtocol', 'apiVersion', 'authType', 'methods', 'contentType', 'etlStatus']
   },
   contracts: {
     required: ['contractId', 'resourceId', 'consumerId', 'status', 'startDate', 'dataSpaceId'],
@@ -90,7 +91,7 @@ async function buildSelfDescription() {
   const [datasets, contracts, providers, consumers, accessRequests] = await Promise.all([
     prisma.dataset.findMany({
       where: { published: true },
-      include: { provider: { select: { id: true, name: true, email: true, orgUnit: true } } }
+      include: { provider: { select: { id: true, name: true, email: true, orgUnit: true } }, externalDataset: true }
     }),
     prisma.contract.findMany({
       include: {
@@ -124,17 +125,30 @@ async function buildSelfDescription() {
     domain: c.orgUnit || 'N/A'
   }));
 
-  const dataResourceEntries = datasets.map((d) => ({
-    publicationId: d.id,
-    name: d.name,
-    providerId: d.providerId,
-    description: d.description,
-    endpoint: d.storageUri,
-    format: d.storageType,
-    quality: d.dataClassification,
-    createdAt: d.createdAt,
-    ownership: d.provider?.name || null
-  }));
+  const dataResourceEntries = datasets.map((d) => {
+    const enrichment = buildSelfDescriptionEnrichment(d);
+
+    return {
+      publicationId: d.id,
+      name: d.name,
+      providerId: d.providerId,
+      description: d.description,
+      endpoint: enrichment.endpoint || d.storageUri,
+      format: d.storageType,
+      quality: d.dataClassification,
+      createdAt: d.createdAt,
+      ownership: d.provider?.name || null,
+      sourceSystem: enrichment.sourceSystem,
+      assetId: enrichment.assetId,
+      assetType: enrichment.assetType,
+      connectorProtocol: enrichment.connectorProtocol,
+      apiVersion: enrichment.apiVersion,
+      authType: enrichment.authType,
+      methods: enrichment.methods,
+      contentType: enrichment.contentType,
+      etlStatus: enrichment.etlStatus
+    };
+  });
 
   const odrlPolicyEntries = contracts
     .filter((c) => Boolean(c.odrlPolicy))
@@ -202,7 +216,7 @@ async function buildSelfDescription() {
     }));
 
   return {
-    version: '2.1.0',
+    version: '2.2.0',
     issuedAt: new Date().toISOString(),
     profile: 'dssc-self-description',
     validationPolicy: {
@@ -257,14 +271,22 @@ async function buildSelfDescription() {
     dataProducts: productGate.accepted,
     publicationProductLinks,
     qualityMetrics: qualityGate.accepted,
+    etl: {
+      readiness: 'CONNECTOR_EDC_COMPATIBLE',
+      supportedCatalogSources: ['OPENMETADATA', 'EDC_CONNECTOR'],
+      normalizationProfiles: ['OPENMETADATA_BASIC', 'EDC_ASSET_V1'],
+      acceptedExternalResources: resourceGate.accepted.filter((r) => r.sourceSystem && r.sourceSystem !== 'INTERNAL').length
+    },
     capabilities: {
       connectorMode: process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT',
       controlPlane: {
+        catalogImport: true,
         contractSync: true,
         contractRevocation: true,
         idempotencyKeys: true
       },
       dataPlane: {
+        apiAssetIngestion: true,
         mediatedAccess: true,
         supportedExchangeModes: ['FILE', 'EXTERNAL_API'],
         tokenizedAccess: true

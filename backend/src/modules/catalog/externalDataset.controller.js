@@ -36,7 +36,26 @@ async function syncExternalMockController(req, res, next) {
   }
 }
 
+
+async function syncExternalConnectorMockController(req, res, next) {
+  try {
+    const { assets } = req.body;
+
+    if (!Array.isArray(assets)) {
+      const err = new Error('Se espera un array assets con entradas del catálogo del conector');
+      err.status = 400;
+      throw err;
+    }
+
+    const result = await externalService.syncFromConnectorCatalog(assets);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listExternalDatasetsController,
-  syncExternalMockController
+  syncExternalMockController,
+  syncExternalConnectorMockController
 };

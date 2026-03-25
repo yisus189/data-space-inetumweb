@@ -85,7 +85,7 @@ test('self-description: excluye entidades sin campos requeridos y conserva opcio
 
   const sd = await buildSelfDescription();
 
-  assert.equal(sd.version, '2.1.0');
+  assert.equal(sd.version, '2.2.0');
   assert.equal(sd.validationPolicy.gate, 'REQUIRED_FIELDS_MANDATORY');
   assert.equal(sd.dataResources.length, 1);
   assert.equal(sd.dataResources[0].publicationId, 1);

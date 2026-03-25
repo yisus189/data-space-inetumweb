@@ -1,4 +1,5 @@
 const prisma = require('../../config/db');
+const { normalizeConnectorCatalogAsset } = require('./connectorCatalogEtl.service');
 
 /**
  * Lista de datasets externos (por ejemplo, sincronizados desde OpenMetadata).
@@ -49,6 +50,40 @@ async function upsertExternalDataset({
   });
 }
 
+
+async function syncFromConnectorCatalog(assetArray) {
+  const accepted = [];
+  const rejected = [];
+
+  for (const asset of assetArray) {
+    const normalized = normalizeConnectorCatalogAsset(asset);
+
+    if (!normalized.isAcceptable) {
+      rejected.push({
+        externalId: normalized.externalId || null,
+        missingRequired: normalized.missingRequired
+      });
+      continue;
+    }
+
+    const saved = await upsertExternalDataset({
+      externalSystem: normalized.externalSystem,
+      externalId: normalized.externalId,
+      name: normalized.name,
+      description: normalized.description,
+      metadataJson: normalized.metadataJson
+    });
+
+    accepted.push(saved);
+  }
+
+  return {
+    accepted,
+    rejected,
+    total: assetArray.length
+  };
+}
+
 /**
  * Hook de sincronización "falso" (placeholder).
  * Aquí en un futuro integrarás la llamada real a OpenMetadata.
@@ -71,5 +106,6 @@ async function syncFromOpenMetadata(mockDataArray) {
 module.exports = {
   listExternalDatasets,
   upsertExternalDataset,
-  syncFromOpenMetadata
+  syncFromOpenMetadata,
+  syncFromConnectorCatalog
 };

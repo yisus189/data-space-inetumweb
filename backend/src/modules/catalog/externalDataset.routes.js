@@ -1,7 +1,8 @@
 const express = require('express');
 const {
   listExternalDatasetsController,
-  syncExternalMockController
+  syncExternalMockController,
+  syncExternalConnectorMockController
 } = require('./externalDataset.controller');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 
@@ -12,5 +13,6 @@ router.get('/', requireAuth, listExternalDatasetsController);
 
 // Solo Operator puede lanzar sincronización
 router.post('/sync-mock', requireAuth, requireRole(['OPERATOR']), syncExternalMockController);
+router.post('/sync-connector-mock', requireAuth, requireRole(['OPERATOR']), syncExternalConnectorMockController);
 
 module.exports = router;

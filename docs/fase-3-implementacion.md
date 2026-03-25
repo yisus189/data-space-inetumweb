@@ -60,6 +60,15 @@ El payload incluye un bloque `validationPolicy` con:
 
 Esto permite interoperabilidad consistente cuando APIs/datasets tienen distinta completitud de metadatos.
 
+### ETL de catálogo para conectores tipo EDC
+
+Se añade una capa de normalización de catálogo para activos con estructura cercana a **EDC Connector**:
+- Normaliza `asset.properties` + `dataAddress` hacia el modelo interno.
+- Requiere mínimos obligatorios para aceptar APIs externas: `externalId`, `name` y `endpoint` cuando el activo es HTTP.
+- Persiste metadata técnica (`connectorProtocol`, `authType`, `methods`, `apiVersion`, `contentType`) en `ExternalDataset.metadataJson`.
+- Expone esa información enriquecida en `self-description`, de modo que ITI/conector puedan descubrir correctamente APIs publicadas.
+- Endpoint operativo para pruebas de ingestión: `POST /catalog/external/sync-connector-mock`.
+
 ## 5) Variables de entorno clave
 
 - `DATASPACE_CONNECTOR_MODE=LOCAL_ENFORCEMENT|DSSC_HTTP`
