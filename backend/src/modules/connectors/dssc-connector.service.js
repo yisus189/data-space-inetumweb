@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetchLib = require('node-fetch');
 const fs = require('fs');
 const https = require('https');
 
@@ -13,6 +13,14 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = Number(process.env.DSSC_CONNECTOR_CIRCUIT_BR
 const ADAPTER_CONTRACT_VERSION = '1.0';
 const SUPPORTED_DATA_ACTIONS = new Set(['use', 'download', 'read']);
 const MAX_PENDING_OPERATIONS = Number(process.env.DSSC_CONNECTOR_PENDING_MAX || 500);
+const DSSC_CONNECTOR_PROFILE = (process.env.DSSC_CONNECTOR_PROFILE || 'GENERIC').toUpperCase();
+const DSSC_CONNECTOR_SYNC_PATH = process.env.DSSC_CONNECTOR_SYNC_PATH || '/control-plane/contracts/sync';
+const DSSC_CONNECTOR_REVOKE_PATH = process.env.DSSC_CONNECTOR_REVOKE_PATH || '/control-plane/contracts/revoke';
+const DSSC_CONNECTOR_ACCESS_PATH = process.env.DSSC_CONNECTOR_ACCESS_PATH || '/data-plane/access/request';
+const DSSC_CONNECTOR_HEALTH_PATH = process.env.DSSC_CONNECTOR_HEALTH_PATH || '/health';
+const DSSC_CONNECTOR_AUTH_MODE = (process.env.DSSC_CONNECTOR_AUTH_MODE || 'BEARER').toUpperCase();
+const DSSC_CONNECTOR_AUTH_HEADER = process.env.DSSC_CONNECTOR_AUTH_HEADER || null;
+const DSSC_CONNECTOR_AUTH_PREFIX = process.env.DSSC_CONNECTOR_AUTH_PREFIX || 'Bearer';
 const DSSC_CONNECTOR_MTLS_ENABLED = process.env.DSSC_CONNECTOR_MTLS_ENABLED === 'true';
 const DSSC_CONNECTOR_MTLS_CERT_PATH = process.env.DSSC_CONNECTOR_MTLS_CERT_PATH || null;
 const DSSC_CONNECTOR_MTLS_KEY_PATH = process.env.DSSC_CONNECTOR_MTLS_KEY_PATH || null;
@@ -32,6 +40,12 @@ const adapterMetrics = {
 };
 
 const pendingOperations = [];
+
+const fetchFn = typeof fetchLib === 'function' ? fetchLib : fetchLib.default;
+
+if (typeof fetchFn !== 'function') {
+  throw new Error('No se pudo inicializar cliente HTTP para conector DSSC');
+}
 
 function nowMs() {
   return Date.now();
@@ -89,7 +103,13 @@ function getConnectorHeaders(context = {}) {
   const headers = { 'Content-Type': 'application/json' };
 
   if (CONNECTOR_API_KEY) {
-    headers.Authorization = `Bearer ${CONNECTOR_API_KEY}`;
+    if (DSSC_CONNECTOR_AUTH_MODE === 'CUSTOM_HEADER') {
+      headers[DSSC_CONNECTOR_AUTH_HEADER || 'X-API-Key'] = CONNECTOR_API_KEY;
+    } else if (DSSC_CONNECTOR_AUTH_MODE === 'NONE') {
+      // no-op
+    } else {
+      headers.Authorization = `${DSSC_CONNECTOR_AUTH_PREFIX} ${CONNECTOR_API_KEY}`;
+    }
   }
 
   if (context.requestId) {
@@ -175,7 +195,7 @@ async function fetchWithTimeout(url, options) {
   try {
     const mtlsAgent = buildMtlsAgentIfNeeded();
 
-    return await fetch(url, {
+    return await fetchFn(url, {
       ...options,
       signal: controller.signal,
       agent: mtlsAgent || undefined
@@ -301,8 +321,32 @@ function validateControlPlaneResponse(data, operation) {
   }
 }
 
+function normalizeConnectorResponseData(rawData = {}) {
+  if (!rawData || typeof rawData !== 'object') {
+    return {};
+  }
+
+  if (rawData.result && typeof rawData.result === 'object') {
+    return rawData.result;
+  }
+
+  if (rawData.data && typeof rawData.data === 'object') {
+    return rawData.data;
+  }
+
+  return rawData;
+}
+
 function validateDataPlaneResponse(data) {
-  if (!data || typeof data !== 'object' || !data.endpoint) {
+  if (!data || typeof data !== 'object') {
+    const err = new Error('Respuesta inválida del conector DSSC: endpoint ausente');
+    err.status = 502;
+    err.code = 'CONNECTOR_INVALID_RESPONSE';
+    throw err;
+  }
+
+  const endpoint = data.endpoint || data.accessEndpoint || data.url;
+  if (!endpoint) {
     const err = new Error('Respuesta inválida del conector DSSC: endpoint ausente');
     err.status = 502;
     err.code = 'CONNECTOR_INVALID_RESPONSE';
@@ -336,9 +380,17 @@ async function syncContractToConnector(contract, context = {}) {
 
   const payload = buildContractPayload(contract);
   const operation = 'control-plane.contract.sync';
+  const connectorPayload = DSSC_CONNECTOR_PROFILE === 'DSSC_V1'
+    ? {
+        contract: payload,
+        negotiationContext: {
+          requestId: context.requestId || null
+        }
+      }
+    : payload;
 
   try {
-    const connectorResponse = await postToConnector('/control-plane/contracts/sync', payload, normalizeConnectorContext({
+    const connectorResponse = await postToConnector(DSSC_CONNECTOR_SYNC_PATH, connectorPayload, normalizeConnectorContext({
       ...context,
       idempotencyKey: context.idempotencyKey || `sync-contract-${contract.id}`
     }, operation));
@@ -353,7 +405,7 @@ async function syncContractToConnector(contract, context = {}) {
       result: connectorResponse.data
     };
   } catch (error) {
-    enqueuePendingOperation({ operation, payload, context, reason: error.code || error.message });
+    enqueuePendingOperation({ operation, payload: connectorPayload, context, reason: error.code || error.message });
     throw error;
   }
 }
@@ -375,9 +427,17 @@ async function revokeContractInConnector(contract, context = {}) {
     datasetId: contract.datasetId,
     consumerId: contract.consumerId
   };
+  const connectorPayload = DSSC_CONNECTOR_PROFILE === 'DSSC_V1'
+    ? {
+        contractRevoke: payload,
+        negotiationContext: {
+          requestId: context.requestId || null
+        }
+      }
+    : payload;
 
   try {
-    const connectorResponse = await postToConnector('/control-plane/contracts/revoke', payload, normalizeConnectorContext({
+    const connectorResponse = await postToConnector(DSSC_CONNECTOR_REVOKE_PATH, connectorPayload, normalizeConnectorContext({
       ...context,
       idempotencyKey: context.idempotencyKey || `revoke-contract-${contract.id}`
     }, operation));
@@ -392,7 +452,7 @@ async function revokeContractInConnector(contract, context = {}) {
       result: connectorResponse.data
     };
   } catch (error) {
-    enqueuePendingOperation({ operation, payload, context, reason: error.code || error.message });
+    enqueuePendingOperation({ operation, payload: connectorPayload, context, reason: error.code || error.message });
     throw error;
   }
 }
@@ -415,25 +475,36 @@ async function requestDataPlaneAccess(input, context = {}) {
   }
 
   const operation = 'data-plane.access.request';
-  const connectorResponse = await postToConnector('/data-plane/access/request', {
+  const requestPayload = {
     contractId: contract.id,
     datasetId: dataset.id,
     consumerId,
     purpose,
     action
-  }, normalizeConnectorContext({
+  };
+  const connectorPayload = DSSC_CONNECTOR_PROFILE === 'DSSC_V1'
+    ? {
+        accessRequest: requestPayload,
+        dataset: {
+          id: dataset.id,
+          storageUri: dataset.storageUri
+        }
+      }
+    : requestPayload;
+
+  const connectorResponse = await postToConnector(DSSC_CONNECTOR_ACCESS_PATH, connectorPayload, normalizeConnectorContext({
     ...context,
     idempotencyKey: context.idempotencyKey || `data-access-${contract.id}-${dataset.id}-${consumerId}-${action}`
   }, operation));
 
-  const result = connectorResponse.data || {};
+  const result = normalizeConnectorResponseData(connectorResponse.data || {});
   validateDataPlaneResponse(result);
 
   return {
     mode: CONNECTOR_MODE,
     transport: result.transport || 'CONNECTOR_PROXY',
-    endpoint: result.endpoint,
-    token: result.token || null,
+    endpoint: result.endpoint || result.accessEndpoint || result.url,
+    token: result.token || result.accessToken || null,
     expiresAt: result.expiresAt || null,
     attempts: connectorResponse.attempts,
     adapterMeta: buildAdapterMeta(operation, connectorResponse.attempts)
@@ -453,9 +524,9 @@ async function retryPendingConnectorOperations(limit = 20) {
 
     try {
       if (item.operation === 'control-plane.contract.sync') {
-        await postToConnector('/control-plane/contracts/sync', item.payload, normalizeConnectorContext(item.context || {}, item.operation));
+        await postToConnector(DSSC_CONNECTOR_SYNC_PATH, item.payload, normalizeConnectorContext(item.context || {}, item.operation));
       } else if (item.operation === 'control-plane.contract.revoke') {
-        await postToConnector('/control-plane/contracts/revoke', item.payload, normalizeConnectorContext(item.context || {}, item.operation));
+        await postToConnector(DSSC_CONNECTOR_REVOKE_PATH, item.payload, normalizeConnectorContext(item.context || {}, item.operation));
       } else {
         continue;
       }
@@ -510,7 +581,7 @@ async function getConnectorStatus() {
   }
 
   try {
-    const response = await fetchWithTimeout(`${CONNECTOR_BASE_URL}/health`, {
+    const response = await fetchWithTimeout(`${CONNECTOR_BASE_URL}${DSSC_CONNECTOR_HEALTH_PATH}`, {
       headers: getConnectorHeaders()
     });
 
@@ -527,6 +598,16 @@ async function getConnectorStatus() {
       pendingOperations: pendingOperations.length,
       trust: {
         mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      },
+      interoperability: {
+        profile: DSSC_CONNECTOR_PROFILE,
+        paths: {
+          sync: DSSC_CONNECTOR_SYNC_PATH,
+          revoke: DSSC_CONNECTOR_REVOKE_PATH,
+          access: DSSC_CONNECTOR_ACCESS_PATH,
+          health: DSSC_CONNECTOR_HEALTH_PATH
+        },
+        authMode: DSSC_CONNECTOR_AUTH_MODE
       }
     };
   } catch (error) {
@@ -543,6 +624,16 @@ async function getConnectorStatus() {
       pendingOperations: pendingOperations.length,
       trust: {
         mtlsEnabled: DSSC_CONNECTOR_MTLS_ENABLED
+      },
+      interoperability: {
+        profile: DSSC_CONNECTOR_PROFILE,
+        paths: {
+          sync: DSSC_CONNECTOR_SYNC_PATH,
+          revoke: DSSC_CONNECTOR_REVOKE_PATH,
+          access: DSSC_CONNECTOR_ACCESS_PATH,
+          health: DSSC_CONNECTOR_HEALTH_PATH
+        },
+        authMode: DSSC_CONNECTOR_AUTH_MODE
       }
     };
   }

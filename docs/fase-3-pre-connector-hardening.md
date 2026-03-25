@@ -28,6 +28,13 @@ Además, el adapter publica contrato de interoperabilidad interno:
   - `X-Connector-Operation`
   - `Idempotency-Key`
   - `X-Request-Id`
+- Perfil configurable de payload (`DSSC_CONNECTOR_PROFILE`):
+  - `GENERIC` (payload plano actual).
+  - `DSSC_V1` (payload envuelto en `contract`/`accessRequest` para conectores vendor específicos).
+- Paths configurables por operación (`DSSC_CONNECTOR_SYNC_PATH`, `...REVOKE_PATH`, `...ACCESS_PATH`, `...HEALTH_PATH`).
+- Respuestas tolerantes a variantes comunes del proveedor:
+  - `endpoint` o `accessEndpoint` o `url`.
+  - `token` o `accessToken`.
 
 Objetivo: evitar acoplamiento débil y fallos silenciosos al recibir el conector real.
 
@@ -57,7 +64,15 @@ Se mantiene y declara:
 ```env
 DATASPACE_CONNECTOR_MODE=DSSC_HTTP
 DSSC_CONNECTOR_BASE_URL=https://connector.vendor.example
+DSSC_CONNECTOR_PROFILE=DSSC_V1
+DSSC_CONNECTOR_SYNC_PATH=/control-plane/contracts/sync
+DSSC_CONNECTOR_REVOKE_PATH=/control-plane/contracts/revoke
+DSSC_CONNECTOR_ACCESS_PATH=/data-plane/access/request
+DSSC_CONNECTOR_HEALTH_PATH=/health
 DSSC_CONNECTOR_API_KEY=***
+DSSC_CONNECTOR_AUTH_MODE=BEARER # BEARER | CUSTOM_HEADER | NONE
+DSSC_CONNECTOR_AUTH_PREFIX=Bearer
+DSSC_CONNECTOR_AUTH_HEADER=X-Participant-Api-Key
 DSSC_CONNECTOR_TIMEOUT_MS=5000
 DSSC_CONNECTOR_RETRY_MAX=2
 DSSC_CONNECTOR_RETRY_BASE_MS=150
