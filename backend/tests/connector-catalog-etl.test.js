@@ -24,7 +24,7 @@ test('ETL conector: normaliza asset tipo EDC HTTP para APIs', () => {
     }
   };
 
-  const result = normalizeConnectorCatalogAsset(asset);
+  const result = normalizeConnectorCatalogAsset(asset, 'EDC_ASSET_V1');
 
   assert.equal(result.isAcceptable, true);
   assert.equal(result.externalSystem, 'EDC_CONNECTOR');
@@ -32,6 +32,7 @@ test('ETL conector: normaliza asset tipo EDC HTTP para APIs', () => {
   assert.equal(result.storageType, 'EXTERNAL_API');
   assert.equal(result.endpoint, 'https://provider.example.com/orders');
   assert.deepEqual(result.methods, ['GET', 'POST']);
+  assert.equal(result.sourceProfile, 'EDC_ASSET_V1');
 });
 
 test('ETL conector: rechaza asset HTTP sin id/nombre/endpoint mínimo', () => {
@@ -64,8 +65,36 @@ test('Self-description: enriquece dataset con metadata de asset EDC', () => {
   });
 
   assert.equal(result.assetId, 'asset-55');
+  assert.equal(result.sourceProfile, null);
   assert.equal(result.connectorProtocol, 'dataspace-protocol-http');
   assert.equal(result.apiVersion, 'v2');
   assert.equal(result.endpoint, 'https://provider.example.com/api');
   assert.equal(result.etlStatus, 'NORMALIZED');
+});
+
+
+test('ETL conector: normaliza asset con perfil DSSC_MOD_V1', () => {
+  const asset = {
+    assetId: 'dssc-asset-999',
+    assetMetadata: {
+      displayName: 'Invoices API',
+      summary: 'API de facturas',
+      apiVersion: 'v3',
+      methods: ['GET', 'PUT'],
+      authType: 'OAuth2'
+    },
+    access: {
+      type: 'HttpData',
+      endpoint: 'https://dssc.example.com/invoices',
+      method: 'GET'
+    }
+  };
+
+  const result = normalizeConnectorCatalogAsset(asset, 'DSSC_MOD_V1');
+
+  assert.equal(result.isAcceptable, true);
+  assert.equal(result.externalSystem, 'DSSC_CONNECTOR');
+  assert.equal(result.externalId, 'dssc-asset-999');
+  assert.equal(result.sourceProfile, 'DSSC_MOD_V1');
+  assert.deepEqual(result.methods, ['GET', 'PUT']);
 });

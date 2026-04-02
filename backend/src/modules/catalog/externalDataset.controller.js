@@ -39,7 +39,7 @@ async function syncExternalMockController(req, res, next) {
 
 async function syncExternalConnectorMockController(req, res, next) {
   try {
-    const { assets } = req.body;
+    const { assets, profile = 'EDC_ASSET_V1' } = req.body;
 
     if (!Array.isArray(assets)) {
       const err = new Error('Se espera un array assets con entradas del catálogo del conector');
@@ -47,7 +47,20 @@ async function syncExternalConnectorMockController(req, res, next) {
       throw err;
     }
 
-    const result = await externalService.syncFromConnectorCatalog(assets);
+    const result = await externalService.syncFromConnectorCatalog(assets, profile);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+
+async function exportConnectorAssetsController(req, res, next) {
+  try {
+    const profile = req.query.profile || 'EDC_ASSET_V1';
+    const publishedOnly = req.query.publishedOnly !== 'false';
+
+    const result = await externalService.exportConnectorAssets({ profile, publishedOnly });
     res.json(result);
   } catch (err) {
     next(err);
@@ -57,5 +70,6 @@ async function syncExternalConnectorMockController(req, res, next) {
 module.exports = {
   listExternalDatasetsController,
   syncExternalMockController,
-  syncExternalConnectorMockController
+  syncExternalConnectorMockController,
+  exportConnectorAssetsController
 };

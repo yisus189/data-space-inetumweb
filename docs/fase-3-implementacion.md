@@ -63,11 +63,17 @@ Esto permite interoperabilidad consistente cuando APIs/datasets tienen distinta 
 ### ETL de catálogo para conectores tipo EDC
 
 Se añade una capa de normalización de catálogo para activos con estructura cercana a **EDC Connector**:
-- Normaliza `asset.properties` + `dataAddress` hacia el modelo interno.
+- Normaliza `asset.properties` + `dataAddress` (perfil `EDC_ASSET_V1`) y también estructura DSSC modificada (`DSSC_MOD_V1`).
 - Requiere mínimos obligatorios para aceptar APIs externas: `externalId`, `name` y `endpoint` cuando el activo es HTTP.
 - Persiste metadata técnica (`connectorProtocol`, `authType`, `methods`, `apiVersion`, `contentType`) en `ExternalDataset.metadataJson`.
 - Expone esa información enriquecida en `self-description`, de modo que ITI/conector puedan descubrir correctamente APIs publicadas.
-- Endpoint operativo para pruebas de ingestión: `POST /catalog/external/sync-connector-mock`.
+- Endpoints operativos:
+  - `POST /catalog/external/sync-connector-mock` para importación de assets.
+  - `GET /catalog/external/export-connector-assets` para exportar oferta API del provider/operator en formato de conector.
+
+### Preparación Gaia-X
+
+El `self-description` incorpora una sección `gaiax` con reglas de compliance declarativas para soberanía, usage-control, auditabilidad, trust discovery e interoperabilidad.
 
 ## 5) Variables de entorno clave
 

@@ -1,5 +1,5 @@
 const prisma = require('../../config/db');
-const { normalizeConnectorCatalogAsset } = require('./connectorCatalogEtl.service');
+const { normalizeConnectorCatalogAsset, exportDatasetAsConnectorAsset } = require('./connectorCatalogEtl.service');
 
 /**
  * Lista de datasets externos (por ejemplo, sincronizados desde OpenMetadata).
@@ -51,12 +51,12 @@ async function upsertExternalDataset({
 }
 
 
-async function syncFromConnectorCatalog(assetArray) {
+async function syncFromConnectorCatalog(assetArray, profile = 'EDC_ASSET_V1') {
   const accepted = [];
   const rejected = [];
 
   for (const asset of assetArray) {
-    const normalized = normalizeConnectorCatalogAsset(asset);
+    const normalized = normalizeConnectorCatalogAsset(asset, profile);
 
     if (!normalized.isAcceptable) {
       rejected.push({
@@ -84,6 +84,33 @@ async function syncFromConnectorCatalog(assetArray) {
   };
 }
 
+
+async function exportConnectorAssets({ profile = 'EDC_ASSET_V1', publishedOnly = true } = {}) {
+  const datasets = await prisma.dataset.findMany({
+    where: publishedOnly ? { published: true } : undefined,
+    include: {
+      provider: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  const assets = datasets
+    .filter((dataset) => dataset.storageType === 'EXTERNAL_API' && dataset.storageUri)
+    .map((dataset) => exportDatasetAsConnectorAsset(dataset, profile));
+
+  return {
+    profile: String(profile).toUpperCase(),
+    exported: assets.length,
+    assets
+  };
+}
+
 /**
  * Hook de sincronización "falso" (placeholder).
  * Aquí en un futuro integrarás la llamada real a OpenMetadata.
@@ -107,5 +134,6 @@ module.exports = {
   listExternalDatasets,
   upsertExternalDataset,
   syncFromOpenMetadata,
-  syncFromConnectorCatalog
+  syncFromConnectorCatalog,
+  exportConnectorAssets
 };

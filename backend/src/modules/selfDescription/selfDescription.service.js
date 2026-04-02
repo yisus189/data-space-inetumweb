@@ -12,7 +12,7 @@ const REQUIRED_OPTIONAL_PROFILE = {
   },
   dataResources: {
     required: ['publicationId', 'name', 'providerId', 'format', 'createdAt'],
-    optional: ['description', 'endpoint', 'quality', 'ownership', 'sourceSystem', 'assetId', 'assetType', 'connectorProtocol', 'apiVersion', 'authType', 'methods', 'contentType', 'etlStatus']
+    optional: ['description', 'endpoint', 'quality', 'ownership', 'sourceSystem', 'sourceProfile', 'assetId', 'assetType', 'connectorProtocol', 'apiVersion', 'authType', 'methods', 'transferModes', 'contentType', 'etlStatus']
   },
   contracts: {
     required: ['contractId', 'resourceId', 'consumerId', 'status', 'startDate', 'dataSpaceId'],
@@ -139,12 +139,14 @@ async function buildSelfDescription() {
       createdAt: d.createdAt,
       ownership: d.provider?.name || null,
       sourceSystem: enrichment.sourceSystem,
+      sourceProfile: enrichment.sourceProfile,
       assetId: enrichment.assetId,
       assetType: enrichment.assetType,
       connectorProtocol: enrichment.connectorProtocol,
       apiVersion: enrichment.apiVersion,
       authType: enrichment.authType,
       methods: enrichment.methods,
+      transferModes: enrichment.transferModes,
       contentType: enrichment.contentType,
       etlStatus: enrichment.etlStatus
     };
@@ -272,10 +274,25 @@ async function buildSelfDescription() {
     publicationProductLinks,
     qualityMetrics: qualityGate.accepted,
     etl: {
-      readiness: 'CONNECTOR_EDC_COMPATIBLE',
-      supportedCatalogSources: ['OPENMETADATA', 'EDC_CONNECTOR'],
-      normalizationProfiles: ['OPENMETADATA_BASIC', 'EDC_ASSET_V1'],
+      readiness: 'CONNECTOR_DSSC_EDC_COMPATIBLE',
+      supportedCatalogSources: ['OPENMETADATA', 'EDC_CONNECTOR', 'DSSC_CONNECTOR'],
+      normalizationProfiles: ['OPENMETADATA_BASIC', 'EDC_ASSET_V1', 'DSSC_MOD_V1'],
       acceptedExternalResources: resourceGate.accepted.filter((r) => r.sourceSystem && r.sourceSystem !== 'INTERNAL').length
+    },
+    gaiax: {
+      complianceMode: process.env.GAIAX_COMPLIANCE_MODE || 'DECLARATIVE_PREPARED',
+      policyRules: [
+        'data-sovereignty',
+        'usage-control',
+        'auditability',
+        'trust-discovery',
+        'interoperability'
+      ],
+      trustAnchors: {
+        jwksEndpoint: '/auth/.well-known/jwks.json',
+        tokenMetadataEndpoint: '/auth/token-metadata',
+        selfDescriptionEndpoint: '/self-description'
+      }
     },
     capabilities: {
       connectorMode: process.env.DATASPACE_CONNECTOR_MODE || 'LOCAL_ENFORCEMENT',
