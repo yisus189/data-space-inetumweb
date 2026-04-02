@@ -170,7 +170,7 @@ function Navbar() {
         elevation={4}
         sx={{
           background:
-            'linear-gradient(90deg, #0d47a1 0%, #1976d2 50%, #42a5f5 100%)',
+            'linear-gradient(90deg, #0a1222 0%, #141f39 45%, #1a2650 100%)',
         }}
       >
         <Toolbar sx={{ px: 2 }}>
@@ -198,7 +198,7 @@ function Navbar() {
                 width: 32,
                 height: 32,
                 borderRadius: '8px',
-                backgroundColor: 'rgba(255,255,255,0.15)',
+                backgroundColor: 'rgba(79,124,255,0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -221,7 +221,7 @@ function Navbar() {
               </Typography>
               <Typography
                 variant="caption"
-                sx={{ color: 'rgba(255,255,255,0.8)' }}
+                sx={{ color: 'rgba(232,238,255,0.75)' }}
               >
                 Plataforma de intercambio de datos
               </Typography>
@@ -239,7 +239,7 @@ function Navbar() {
                 </Typography>
                 <Typography
                   variant="caption"
-                  sx={{ color: 'rgba(255,255,255,0.8)' }}
+                  sx={{ color: 'rgba(232,238,255,0.75)' }}
                 >
                   {rolLabel || user.role}
                 </Typography>
@@ -248,7 +248,7 @@ function Navbar() {
                 sx={{
                   width: 32,
                   height: 32,
-                  bgcolor: 'rgba(255,255,255,0.15)',
+                  bgcolor: 'rgba(79,124,255,0.22)',
                   color: 'white',
                   fontSize: '0.9rem',
                   fontWeight: 'bold',
@@ -262,8 +262,8 @@ function Navbar() {
                 onClick={handleLogout}
                 sx={{
                   ml: 1,
-                  bgcolor: 'rgba(255,255,255,0.12)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
+                  bgcolor: 'rgba(79,124,255,0.2)',
+                  '&:hover': { bgcolor: 'rgba(79,124,255,0.33)' },
                 }}
               >
                 <LogoutIcon fontSize="small" />
@@ -286,7 +286,7 @@ function Navbar() {
             p: 2,
             pb: 1.5,
             background:
-              'linear-gradient(135deg, #0d47a1 0%, #1976d2 60%, #42a5f5 100%)',
+              'linear-gradient(135deg, #111a30 0%, #17223f 60%, #1f2f58 100%)',
             color: 'white',
           }}
         >
@@ -323,9 +323,9 @@ function Navbar() {
                         mx: 1,
                         mb: 0.5,
                         '&.Mui-selected': {
-                          backgroundColor: 'rgba(25,118,210,0.08)',
+                          backgroundColor: 'rgba(79,124,255,0.14)',
                           '&:hover': {
-                            backgroundColor: 'rgba(25,118,210,0.12)',
+                            backgroundColor: 'rgba(79,124,255,0.22)',
                           },
                         },
                       }}

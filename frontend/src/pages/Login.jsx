@@ -1,4 +1,3 @@
-// frontend/src/pages/Login.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -29,13 +28,10 @@ function Login() {
       const saved = localStorage.getItem('dataspace_user');
       const user = saved ? JSON.parse(saved) : null;
 
-      if (user) {
-        if (user.role === 'PROVIDER') navigate('/provider');
-        if (user.role === 'CONSUMER') navigate('/consumer');
-        if (user.role === 'OPERATOR') navigate('/operator');
-      } else {
-        navigate('/');
-      }
+      if (user?.role === 'PROVIDER') navigate('/provider');
+      else if (user?.role === 'CONSUMER') navigate('/consumer');
+      else if (user?.role === 'OPERATOR') navigate('/operator');
+      else navigate('/');
     } catch (err) {
       setError(err.message || 'Error en login');
     }
@@ -48,181 +44,92 @@ function Login() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background:
-          'radial-gradient(circle at top left, #e3f2fd 0, transparent 55%), radial-gradient(circle at bottom right, #fff3e0 0, transparent 55%)',
-        py: 4,
         px: 2,
+        py: 4,
+        background:
+          'radial-gradient(circle at 15% 15%, rgba(79,124,255,0.18), transparent 32%), radial-gradient(circle at 85% 80%, rgba(138,107,255,0.16), transparent 36%), #070b14',
       }}
     >
-      <Container
-        maxWidth="sm"
-        disableGutters
-        sx={{
-          display: 'flex',
-          justifyContent: 'center',
-        }}
-      >
+      <Container maxWidth="sm" disableGutters>
         <Paper
-          elevation={6}
+          elevation={0}
           sx={{
-            borderRadius: 3,
             overflow: 'hidden',
-            width: '100%',
+            borderRadius: 3,
+            backdropFilter: 'blur(8px)',
           }}
         >
-          {/* CINTA AZUL SUPERIOR CENTRADA */}
           <Box
             sx={{
-              width: '100%',
-              background:
-                'linear-gradient(135deg, #0d47a1 0%, #1976d2 45%, #42a5f5 100%)',
-              color: 'white',
               p: 3,
-              textAlign: 'center',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              background:
+                'linear-gradient(120deg, rgba(79,124,255,0.2) 0%, rgba(138,107,255,0.15) 100%)',
             }}
           >
-            <Box sx={{ maxWidth: 360, mx: 'auto' }}>
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 'bold', mb: 0.5 }}
-              >
-                Data Space Inetum
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ opacity: 0.9, mb: 1.5 }}
-              >
-                Plataforma segura para compartir, descubrir y consumir datos
-                entre organizaciones.
-              </Typography>
-
-              <Typography
-                variant="caption"
-                sx={{ opacity: 0.9, fontWeight: 500 }}
-              >
-              </Typography>
-              <Box
-                component="ul"
-                sx={{
-                  listStyle: 'none',
-                  pl: 0,
-                  m: 0,
-                  mt: 0.5,
-                  fontSize: '0.8rem',
-                  textAlign: 'left',
-                  mx: 'auto',
-                  maxWidth: 320,
-                  '& li': { mb: 0.25 },
-                }}
-              >
-              </Box>
-            </Box>
+            <Typography variant="h6" sx={{ color: 'text.primary', mb: 0.5 }}>
+              Data Space Inetum
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Plataforma segura para compartir, descubrir y consumir datos.
+            </Typography>
           </Box>
 
-          {/* CUERPO BLANCO CON FORMULARIO CENTRADO */}
-          <Box
-            sx={{
-              p: 3,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-            }}
-          >
-            <Box
-              sx={{
-                width: '100%',
-                maxWidth: 420,
-              }}
-            >
-              <Box mb={2} textAlign="center">
+          <Box sx={{ p: 3 }}>
+            <Box mb={2.5}>
+              <Typography variant="h5" sx={{ mb: 0.5 }}>
+                Inicia sesión
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Accede con tus credenciales para continuar.
+              </Typography>
+            </Box>
+
+            <Box component="form" onSubmit={handleSubmit} noValidate>
+              <TextField
+                label="Correo electrónico"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                fullWidth
+                margin="normal"
+              />
+              <TextField
+                label="Contraseña"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                fullWidth
+                margin="normal"
+              />
+
+              {error && (
                 <Typography
-                  variant="h5"
-                  sx={{ fontWeight: 'bold', mb: 0.5, color: 'primary.main' }}
+                  variant="body2"
+                  color="error"
+                  sx={{ mt: 1.5, textAlign: 'center' }}
                 >
-                  Inicia sesión
+                  {error}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Accede con tus credenciales para continuar.
-                </Typography>
-              </Box>
+              )}
 
-              <Box component="form" onSubmit={handleSubmit} noValidate>
-                <TextField
-                  label="Correo electrónico"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  fullWidth
-                  margin="normal"
-                  variant="outlined"
-                  size="small"
-                />
-                <TextField
-                  label="Contraseña"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  fullWidth
-                  margin="normal"
-                  variant="outlined"
-                  size="small"
-                />
+              <Button type="submit" variant="contained" fullWidth sx={{ mt: 3, py: 1 }}>
+                Iniciar sesión
+              </Button>
 
-                {error && (
-                  <Typography
-                    variant="body2"
-                    color="error"
-                    sx={{ mt: 1, textAlign: 'center' }}
-                  >
-                    {error}
-                  </Typography>
-                )}
+              <Divider sx={{ my: 2, color: 'text.secondary' }}>o</Divider>
 
-                {/* Botón principal con hover animado */}
-                <Button
-                  type="submit"
-                  variant="contained"
-                  color="primary"
-                  fullWidth
-                  sx={{
-                    mt: 3,
-                    py: 1,
-                    fontWeight: 'bold',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      backgroundColor: '#0b3c91',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-                      transform: 'translateY(-1px)',
-                    },
-                  }}
-                >
-                  INICIAR SESIÓN
-                </Button>
-
-                <Divider sx={{ my: 2 }}>o</Divider>
-
-                {/* Botón secundario con hover animado */}
-                <Button
-                  type="button"
-                  variant="outlined"
-                  color="primary"
-                  fullWidth
-                  sx={{
-                    py: 1,
-                    fontWeight: 'bold',
-                    borderWidth: 1.5,
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      backgroundColor: 'rgba(25,118,210,0.06)',
-                      borderColor: '#0d47a1',
-                    },
-                  }}
-                  onClick={() => navigate('/register')}
-                >
-                  CREAR NUEVA CUENTA
-                </Button>
-              </Box>
+              <Button
+                type="button"
+                variant="outlined"
+                color="primary"
+                fullWidth
+                sx={{ py: 1 }}
+                onClick={() => navigate('/register')}
+              >
+                Crear nueva cuenta
+              </Button>
             </Box>
           </Box>
         </Paper>

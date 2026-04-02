@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
 import Register from './pages/Register.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { ThemeProvider } from '@mui/material/styles';
@@ -43,72 +43,15 @@ import SupportFab from './components/SupportFab.jsx';
 import ContractDetails from './pages/contracts/ContractDetails.jsx';
 
 function App() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  // Estas funciones y arrays ya no se usan por el Navbar nuevo,
-  // pero las dejo intactas por si las necesitas en otro sitio.
-  const handleLogout = () => {
-    logout();
-    navigate('/');
-  };
-
-  const handleNavigate = (path) => {
-    setDrawerOpen(false);
-    navigate(path);
-  };
-
-  const consumerItems = [
-    { label: 'Dashboard', path: '/consumer' },
-    { label: 'Catálogo', path: '/consumer/catalog' },
-    { label: 'Solicitudes', path: '/consumer/access-requests' },
-    { label: 'Contratos', path: '/consumer/contracts' },
-  ];
-
-  const providerItems = [
-    { label: 'Dashboard', path: '/provider' },
-    { label: 'Mis datasets', path: '/provider/datasets' },
-    { label: 'Solicitudes de acceso', path: '/provider/access-requests' },
-    { label: 'Mis contratos', path: '/provider/contracts' },
-    { label: 'Auditoría de accesos', path: '/provider/audit' },
-  ];
-
-  const operatorItems = [
-    { label: 'Dashboard', path: '/operator' },
-    { label: 'Usuarios', path: '/operator/users' },
-    { label: 'Tipos de negociación', path: '/operator/negotiation-types' },
-    { label: 'Auditoría', path: '/operator/audit' },
-  ];
-
-  const getMenuItems = () => {
-    if (!user) return [];
-    if (user.role === 'CONSUMER') return consumerItems;
-    if (user.role === 'PROVIDER') return providerItems;
-    if (user.role === 'OPERATOR') return operatorItems;
-    return [];
-  };
-
-  const menuItems = getMenuItems();
-
-  const roleLabel =
-    user?.role === 'PROVIDER'
-      ? 'Provider'
-      : user?.role === 'CONSUMER'
-      ? 'Consumer'
-      : user?.role === 'OPERATOR'
-      ? 'Operator'
-      : '';
+  const { user } = useAuth();
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ minHeight: '100vh', backgroundColor: 'background.default' }}>
-        {/* NAVBAR NUEVO, COMPARTIDO POR TODOS LOS ROLES */}
-        <Navbar />
+        {user && <Navbar />}
 
-        {/* CONTENIDO: margen superior para no quedar debajo del AppBar */}
-        <Box sx={{ mt: 8, p: 2 }}>
+        <Box sx={{ mt: user ? 8 : 0, p: 2 }}>
           <Routes>
             {/* Auth */}
             <Route path="/" element={<Login />} />
@@ -163,10 +106,10 @@ function App() {
 
             {/* Vista de conversación (compartida) */}
             <Route
-                path="/support/conversations/:id"
-                element={<SupportConversationView />}
+              path="/support/conversations/:id"
+              element={<SupportConversationView />}
             />
-            <Route path="/contracts/:id" element={<ContractDetails />} />   
+            <Route path="/contracts/:id" element={<ContractDetails />} />
           </Routes>
         </Box>
         <SupportFab />
