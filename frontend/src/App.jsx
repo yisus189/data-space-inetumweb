@@ -41,6 +41,7 @@ import SupportConversationView from './pages/support/SupportConversationView.jsx
 import SupportAllConversations from './pages/support/SupportAllConversations.jsx';
 import SupportFab from './components/SupportFab.jsx';
 import ContractDetails from './pages/contracts/ContractDetails.jsx';
+import EcomovOverview from './pages/EcomovOverview.jsx';
 
 function App() {
   const { user, logout } = useAuth();
@@ -113,6 +114,7 @@ function App() {
             {/* Auth */}
             <Route path="/" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/ecomov" element={<EcomovOverview />} />
 
             {/* PROVIDER */}
             <Route path="/provider" element={<ProviderDashboard />} />

@@ -203,6 +203,17 @@ function Login() {
                 <Divider sx={{ my: 2 }}>o</Divider>
 
                 {/* Botón secundario con hover animado */}
+
+                <Button
+                  type="button"
+                  variant="text"
+                  fullWidth
+                  sx={{ mt: 1, fontWeight: 600 }}
+                  onClick={() => navigate('/ecomov')}
+                >
+                  VER ROADMAP ECOMOV (MVP + FASES)
+                </Button>
+
                 <Button
                   type="button"
                   variant="outlined"
